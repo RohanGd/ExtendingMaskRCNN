@@ -1,0 +1,144 @@
+# Extending Mask-RCNN
+Dataset Link - [Simulated nuclei of HL60 cells stained with Hoechst](https://celltrackingchallenge.net/3d-datasets/).
+
+All class names start with _"emr"_ to avoid clashes with pytorch class name clashes.
+
+
+## 2.5D Instance Segmentation
+[A Flexible 2.5D Medical Image Segmentation Approach with In-Slice and Cross-Slice Attention](https://arxiv.org/pdf/2405.00130)
+
+
+## Things to think about:
+- Varying dataset size - H, W will be handled by the transforms module. But num_slices? Currently designing so that the fusion layer will handle that.
+
+
+## Observations and suggestions 
+
+Model cannot load 59 slices at a time even sequentially because the compute graph will store the gradients for each slice.
+Instead maybe return some n=10 no of slides at a time
+
+ALso, should I pretrain a 2d model for the dataset and then load it into the extended class.
+
+It was observed using a software like napier, slice of real image vs slice of man_seg image that adjusting contrast limits, gamma correction.
+See napierView.py
+Possibility of gamma and contrast limiting as a learnable parameter
+
+
+# DataFlow and Architecture So Far
+
+### emrDataset() _class
+This class is defined under the dataloaders.py file and inherits from torch.utils.data.dataset to load the dataset
+
+
+## Mask-RCNN Theory
+RCNN -  Region based Convolutional Neural Network / regions with CNN features - 
+
+Uses selective search to extrsct 2000 regions from the image (regions proposals), then uses greedy Non maximum supressions to combine similar regions into larger ones. Then the regions ar earped to a standard size and sent to Convolutional neural nets (feature extractor), then classify with SVM, adn bounding box regressor.
+Faster RCNN : Regions Proposal Network
+
+Image -> Convolutions -> feature maps -> Regions Proposal Network  -> proposals on the feature maps  ->  ROI pooling -> classifier
+                                    ------------------------------------------------------------------------^
+
+Mask RCNN
+
+after RPN ( using ROI align) we have Regions of Interests each of a fixed size. For an input slice  
+
+
+
+## Architecture Understanding
+
+Okay so [MaskRCNN](venv/Lib/site-packages/torchvision/models/detection/mask_rcnn.py) init function initializes 3 main things:
+- mask_roi_pool = MultiScaleRoIAlign
+- mask_head = MaskRCNNHeads
+- mask_predictor = MaskRCNNPredictor
+These are the ROIheads. The roi heads is initialized in FasterRCNN Class.
+
+
+The backbone is fixed to resnet50 with IMAGENET1K_V1 weights.
+in the init function of Slice_MaskRCNN in model.py, check if modifying the learnable params from 5 to larger is necessary here.
+``` python
+    trainable_backbone_layers = _validate_trainable_layers(is_trained, trainable_backbone_layers, 5, 3)
+```
+
+The MaskRCNN inherits from FasterRCNN which inherits from GeneralizedRCNN which inherits from the base nn.Module. The forward function is defined in the GeneralizedRCNN.
+
+### [GeneralizedRCNN](venv/Lib/site-packages/torchvision/models/detection/generalized_rcnn.py)
+
+init recieves
+- backbone (nn.Module)
+- rpn (nn.Module)
+- roi_heads (nn.Module): takes the features + the proposals from the RPN and computes detections / masks from it.
+- transform (nn.Module)
+
+The forward function does
+1. Extract features by passing the image through the backbone: features = self.backbone(images.tensors)
+2. Get proposals (bounding boxes) from the Region Proposal Network and corresponding losses: proposals, proposal_losses = self.rpn(images, features, targets)
+3. Get detections: self.roi_heads(features, proposals, images.image_sizes, targets)
+```json
+[
+  {
+    "boxes": [[12.0, 34.0, 56.0, 78.0], [90.0, 45.0, 120.0, 160.0]],
+    "labels": [1, 2],
+    "scores": [0.98, 0.87],
+    "masks": "Tensor of shape [2, 1, 28, 28]"
+  },
+  {
+    "boxes": [[15.0, 25.0, 60.0, 80.0]],
+    "labels": [3],
+    "scores": [0.92],
+    "masks": "Tensor of shape [1, 1, 28, 28]"
+  }
+]
+```
+
+i.e., for each input ``(B, H, W)`` (C = 1 and unsqueezed as we are working with greyscale; change the GeneralizedRCNNTransform), we will get some ``m1, m2, ..mb`` detections, i.e. boxes, masks, corresponding labels, scores of some fixed size, i.e. 28*28 (unless changed in GeneralizedRCNNTransform.postprocess)
+
+
+### [RPNHead](venv/Lib/site-packages/torchvision/models/detection/rpn.py)
+RPN head recieves feature maps from the anchor generator from the backbone, passes them through a series of conv layers to get the objectness score (cls_logits) and bounding box regression values for each anchor box.
+
+``` python
+self.conv = nn.Sequential(*convs)
+self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
+self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
+```
+
+ 
+### [FasterRCNN](venv/Lib/site-packages/torchvision/models/detection/faster_rcnn.py)
+
+init recieves:
+- backbone (nn.Module)
+- rpn params like - rpn_pre/post_nms_top_n_train, rpn_fg_iou_thresh, rpn_positive_fraction etc etc
+- box_nms_thresh, box_score_thresh, box_fg_iou_thresh etc etc
+
+The backbone gives a feature map out of which the rpn_anchor_generator creates anchor boxes at different scales and aspect ratios. Default anchors are created with 5 sizes (32, 64, 128, 256, 512) and 3 aspect ratios (0.5, 1.0, 2.0). 
+The RPN uses RPN heads to classify each anchor box as object or not object (objectness score) and regresses the bounding box coordinates and uses NMS to filter proposals. The proposals are sent to the roi_heads for final classification and mask prediction.
+
+The box_roi_pool is initialized as MultiScaleRoIAlign with output_size=7 (7x7 feature map for each proposal) and sampling_ratio=2.
+The box_head is initialized as TwoMLPHead with representation_size=1024 (2 fully connected layers of size 1024 each).
+The box_predictor is initialized as FastRCNNPredictor. 
+
+
+### [RoIHeads](venv/Lib/site-packages/torchvision/models/detection/roi_heads.py)
+The RoIHead takes 
+- box_roi_pool,
+- box_head,
+- box_predictor,
+
+
+
+### [MaskRCNN](venv/Lib/site-packages/torchvision/models/detection/mask_rcnn.py)
+init receives:
+- backbone (nn.Module)
+- mask_roi_pool = MultiScaleRoIAlign
+- mask_head = MaskRCNNHeads
+- mask_predictor = MaskRCNNPredictor
+- fasterRCNN and generalizedRCNN init params - rpn_head, rpn_anchor_generator, rpn_pre_nms_top_n_train, rpn_post_nms_top_n_train, box_roi_pool, box_head, box_predictor.
+
+
+So to combine, we can say: 
+GeneralizedRCNN init only takes the nn.Module - backbone, rpn, roi_heads, transform
+THe FasterRCNN init takes backbone, transform parameters, RPN parameters and box parameters
+The maskRCNN init takes backbone, transform parameters, RPN parameters, box parameters and Mask Parameters
+
+
