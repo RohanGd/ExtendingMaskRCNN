@@ -37,16 +37,13 @@ class emrDataset(Dataset):
 
         self.dataset_name = os.path.normpath(imgs_dir).split(os.sep)[0]
         self.n = n
-        self.v_size, self.H, self.W = tiff.TiffFile(img_files[0]).shape # total number of slices per volume /3d image, and H, W
+        self.v_size, self.H, self.W = tiff.TiffFile(os.path.join(imgs_dir, img_files[0])).series[0].shape # total number of slices per volume /3d image, and H, W
         num_files = len(img_files)
         self.v, self.s = len(str(num_files)) + 1, len(str(self.v_size)) + 1
 
-        if not os.path.isdir("datasets"):
-            os.makedirs("datasets")
-
         for i in range(num_files):
-            _img = tiff.imread(img_files[i])
-            _mask = tiff.imread(mask_files[i])
+            _img = tiff.imread(os.path.join(imgs_dir, img_files[i]))
+            _mask = tiff.imread(os.path.join(masks_dir, mask_files[i]))
             assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_files[i]} and {mask_files[i]}"
             for slice_idx in range(_img.shape[0]):
                 self.save_as_2d_slice(slice_data=_img[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="imgs")
@@ -61,7 +58,10 @@ class emrDataset(Dataset):
         """
         type_: "imgs" or "masks"
         """
-        tiff.imwrite(f"datasets/{self.dataset_name}/{type_}/{str(volume_idx).zfill(self.v)}{str(slice_idx).zfill(self.s)}", data=slice_data)
+        save_dir = f"datasets/{self.dataset_name}/{type_}"
+        if not os.path.isdir(save_dir):
+            os.makedirs(save_dir)
+        tiff.imwrite(f"{save_dir}/{str(volume_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif", data=slice_data)
         pass
 
     def get_target_from_mask(self, mask, image_id):
@@ -137,7 +137,7 @@ class emrDataset(Dataset):
         v_idx = idx // self.v_size
 
         img_slices = []
-        for i in range(-(self.n - 1)//2, (self.n - 1)//2):
+        for i in range(-(self.n - 1)//2, (self.n - 1)//2 + 1):
             slice_idx = idx % self.v_size + i 
             img_slice = None
             if slice_idx < 0 or slice_idx >= self.v_size:
@@ -146,7 +146,7 @@ class emrDataset(Dataset):
                 img_slice = torch.ones(size=(self.H, self.W)) * eps
             else:
                 # get slice at v_idx at slice_idx
-                img_slice = tiff.imread(f"datasets/{self.dataset_name}/imgs/{str(v_idx).zfill(self.v)}{str(slice_idx).zfill(self.s)}")
+                img_slice = tiff.imread(f"datasets/{self.dataset_name}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif")
                 img_slice = torch.as_tensor(img_slice, dtype=torch.float32) # H,W
             img_slices.append(img_slice)
         
@@ -154,7 +154,7 @@ class emrDataset(Dataset):
 
         # mask / target
         slice_idx = idx % self.v_size
-        mask_slice = tiff.imread(f"datasets/{self.dataset_name}/imgs/{str(v_idx).zfill(self.v)}{str(slice_idx).zfill(self.s)}") # H, W
+        mask_slice = tiff.imread(f"datasets/{self.dataset_name}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif") # H, W
         mask_slice = torch.as_tensor(mask_slice, dtype=torch.float64) # H, W
 
         target = self.get_target_from_mask(mask_slice, idx)
@@ -162,17 +162,8 @@ class emrDataset(Dataset):
         return img_slices, target
 
 
-
-if __name__ == "__main__":
-    imgs_dir = "Fluo-N3DH-CHO/01"
-    masks_dir = "Fluo-N3DH-CHO/01_ST/SEG"
-    dataset = emrDataset(imgs_dir, masks_dir, 3)
-
-    from torch.utils.data import DataLoader
-    generator = torch.manual_seed(42)
-
-    emrdataloader = DataLoader(dataset=dataset, batch_size=4, shuffle=False)
-
-    for i in range(10):
-        imgs, target = next(iter(emrdataloader))
-        print(imgs.shape, print(target)) 
+def emrCollate_fn(batch):
+    data = [item[0] for item in batch]
+    targets = [item[1] for item in batch]
+    data = torch.stack(data, dim=0)
+    return data, targets
