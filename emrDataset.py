@@ -14,12 +14,16 @@ idx = 9; volume 1 slice idx % v_size - (n-1)//2 so 0, 1, 2. And mask of slcie 1
 '''
 
 import os
+import logging
 from torch.utils.data import Dataset
 import tifffile as tiff
 import torch
 
+logger = logging.getLogger(__name__)
+logger.setLevel(20)
+
 class emrDataset(Dataset):
-    def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3):
+    def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3, load_from_cache=False):
         """
         Initializes the dataset with image and mask directories and the 2.5D context window size.
 
@@ -27,6 +31,7 @@ class emrDataset(Dataset):
             imgs_dir (str, optional): Relative path to the directory containing 3D TIFF image files.
             masks_dir (str, optional): Relative path to the directory containing 3D TIFF mask files.
             n (int, optional): Number of slices to include in the 2.5D context window. Defaults to 3.
+            load_from_cache: if True, doesnt resave individual 2d slices. Expects them to exist in datasets/dataset_name/imgs, masks
 
         Notes:
             Assumes that file names in both directories are sorted in order.
@@ -41,17 +46,21 @@ class emrDataset(Dataset):
         num_files = len(img_files)
         self.v, self.s = len(str(num_files)) + 1, len(str(self.v_size)) + 1
 
-        for i in range(num_files):
-            _img = tiff.imread(os.path.join(imgs_dir, img_files[i]))
-            _mask = tiff.imread(os.path.join(masks_dir, mask_files[i]))
-            assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_files[i]} and {mask_files[i]}"
-            for slice_idx in range(_img.shape[0]):
-                self.save_as_2d_slice(slice_data=_img[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="imgs")
-                self.save_as_2d_slice(slice_data=_mask[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="masks")        
+        if not load_from_cache:
+            for i in range(num_files):
+                _img = tiff.imread(os.path.join(imgs_dir, img_files[i]))
+                _mask = tiff.imread(os.path.join(masks_dir, mask_files[i]))
+                assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_files[i]} and {mask_files[i]}"
+                for slice_idx in range(_img.shape[0]):
+                    self.save_as_2d_slice(slice_data=_img[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="imgs")
+                    self.save_as_2d_slice(slice_data=_mask[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="masks") 
+        else:
+            pass       
 
         self.img_files = sorted(os.listdir(f"datasets/{self.dataset_name}/imgs/"))
         self.mask_files = sorted(os.listdir(f"datasets/{self.dataset_name}/masks/"))
 
+        logger.info(f"Initialized dataset - {self.dataset_name} from  dim: ({self.v_size, self.H, self.W}), and num_files: {num_files} with {self.__len__()} slices. Find 2d slice files at datasets/{self.dataset_name}/imgs/ or /masks")
         pass
 
     def save_as_2d_slice(self, slice_data, volume_idx, slice_idx, type_):
@@ -163,6 +172,12 @@ class emrDataset(Dataset):
 
 
 def emrCollate_fn(batch):
+    '''
+    Custom collate function for dataloader.
+    Returns:
+        data: torch.Size([B, n, H, W])
+        targets: list of dicts of tensor. List size = B, each dict corresponds to the center slice
+    '''
     data = [item[0] for item in batch]
     targets = [item[1] for item in batch]
     data = torch.stack(data, dim=0)
