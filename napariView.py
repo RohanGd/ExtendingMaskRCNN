@@ -1,35 +1,51 @@
 import tifffile
 import napari
+import sys
 
 
-# Load the tif stacks
-img = tifffile.imread("Fluo-N3DH-SIM+/01/t008.tif")          # raw data, shape (59, 343, 649)
-seg = tifffile.imread("Fluo-N3DH-SIM+/01_GT/SEG/man_seg008.tif")      # segmentation mask, same shape
+if sys.argv == 1:
+        
+    # Load the tif stacks
+    img = tifffile.imread("Fluo-N3DH-SIM+/01/t000.tif")          # raw data, shape (59, 343, 649)
+    seg = tifffile.imread("Fluo-N3DH-SIM+/01_GT/SEG/man_seg000.tif")      # segmentation mask, same shape
 
+    # Launch napari viewer
+    viewer = napari.Viewer()
 
-# Launch napari viewer
-viewer = napari.Viewer()
+    # Add raw image layer with contrast/gamma settings
+    viewer.add_image(
+        img,
+        name="cells",
+        colormap="gray",
+        opacity=1.0,
+        rendering="attenuated_mip",
+        contrast_limits=(100, 150),  #almost removes noise (contrast clipping NOT stretching)
+        gamma=1.2
+    )
 
-# Add raw image layer with contrast/gamma settings
-viewer.add_image(
-    img,
-    name="cells",
-    colormap="gray",
-    opacity=1.0,
-    rendering="attenuated_mip",
-    contrast_limits=(100, 150),  #almost removes noise (contrast clipping NOT stretching)
-    gamma=1.2
-)
+    # Add segmentation as a label layer
+    # https://napari.org/stable/api/napari.layers.Labels.html
+    # change countour = 3 thickness once opened. napari.viewer doesnt support contour parameter change napari.layer.Label next
+    viewer.add_labels(
+        seg,
+        name="segmentation",
+        opacity=1.0, # since contour will be set
+    )
 
-# Add segmentation as a label layer
-# https://napari.org/stable/api/napari.layers.Labels.html
-# change countour = 3 thickness once opened. napari.viewer doesnt support contour parameter change napari.layer.Label next
-viewer.add_labels(
-    seg,
-    name="segmentation",
-    opacity=1.0, # since contour will be set
-)
+    viewer.layers[1].contour = 3 
 
-viewer.layers[1].contour = 3 
+    napari.run()
 
-napari.run()
+else:
+    img = tifffile.imread(sys.argv[1])
+    viewer = napari.Viewer()
+
+    viewer.add_image(
+        img,
+        name="cells",
+        colormap="gray",
+        opacity=1.0,
+        rendering="attenuated_mip",
+    )
+
+    napari.run()

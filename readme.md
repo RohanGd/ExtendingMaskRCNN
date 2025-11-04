@@ -4,9 +4,9 @@ Dataset Link - [Simulated nuclei of HL60 cells stained with Hoechst](https://cel
 All class names start with _"emr"_ to avoid clashes with pytorch class name clashes.
 
 
-## 2.5D Instance Segmentation
-[A Flexible 2.5D Medical Image Segmentation Approach with In-Slice and Cross-Slice Attention](https://arxiv.org/pdf/2405.00130)
-
+## Reading
+- [A Flexible 2.5D Medical Image Segmentation Approach with In-Slice and Cross-Slice Attention](https://arxiv.org/pdf/2405.00130)
+- [Beyond mAP: Towards better evaluation of instance segmentation](https://arxiv.org/pdf/2207.01614)
 
 ## Things to think about:
 - Varying dataset size - H, W will be handled by the transforms module. But num_slices? Currently designing so that the fusion layer will handle that.
@@ -43,6 +43,22 @@ Mask RCNN
 
 after RPN ( using ROI align) we have Regions of Interests each of a fixed size. For an input slice  
 
+
+## Understanding Instance Segmentation
+so we have a 2D image - (H, W) and a corresponding mask (H, W) with 5 unique greyscale values applied to each instance.
+Now our masks are transformed to be (5,H,W) each layer corresponding to the unique instance - binary masks
+
+Our model recieves the image and predicts - 5, 1, H, W masks because the RPN prooposes say 5 regions for which score > threshold(0.5)
+
+What if our model predicts along with this - an instance_id - 1, 2, 3, 4, 5 for slice 0
+
+and say the next slice only has 4 instances - so now the model output masks is say correct - 4, 1, H, W
+and the gt instance_id is 1, 2, 4, 5, i.e. instance 3 no longer exists in this slice
+
+the model should somehow use previous result of 1,2,3,4,5 and previous predicted boxes and current predicted boxes to give out 1, 2, 4, 5
+Some sort of regression on past predicted boxes, current predicted boxes and past predicted instance_ids?
+
+## WHat is dice loss
 
 
 ## Architecture Understanding

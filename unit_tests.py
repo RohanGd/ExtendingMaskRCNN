@@ -74,6 +74,76 @@ def check_model_forward_pass():
 
 
 
+def check_targets():
+    from emrDataset import emrDataset, emrCollate_fn
+    import torch
+    from torch.utils.data import DataLoader
+    import matplotlib.pyplot as plt
+    
+    imgs_dir = "Fluo-N3DH-SIM+/01"
+    masks_dir = "Fluo-N3DH-SIM+/01_GT/SEG"
+
+    num_slices = 3
+    dataset = emrDataset(imgs_dir, masks_dir, num_slices , load_from_cache=True) # num_slice, n=5
+    emrdataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=True, collate_fn=emrCollate_fn)
+
+    images, targets = next(iter(emrdataloader))
+    for target in targets:
+        print(target['masks'].shape)
+        for i in range(target['masks'].shape[0]):
+            t = target['masks'][i]
+            plt.figure(figsize=(10,10))
+            plt.imshow(t)
+            plt.show()   
+
+def check_consecutive_targets_maintain_spatial_consistency():
+    from emrDataset import emrDataset, emrCollate_fn
+    import torch
+    from torch.utils.data import DataLoader
+    import matplotlib.pyplot as plt
+
+    imgs_dir = "Fluo-N3DH-SIM+/01"
+    masks_dir = "Fluo-N3DH-SIM+/01_GT/SEG"
+
+    num_slices = 3
+    dataset = emrDataset(imgs_dir, masks_dir, num_slices , load_from_cache=True) # num_slice, n=5
+    emrdataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=False, collate_fn=emrCollate_fn)
+
+    stop_iter = dataset.v_size
+    volume_0_masks = list() # [(k1, H, W), (k2, H, W), (k3, H, W)]
+    volume_0_ids = list()
+    for images, targets in emrdataloader:
+        stop_iter -= 1
+        target = targets[0] # bcz batch_size = 1
+        volume_0_masks.append(target['masks']) # k1, H, W
+        volume_0_ids.append(target['image_id'])
+        if stop_iter < 0:
+            break
+    
+    # eg. for each slice print the 3rd mask. I printed the 
+    for i in range(35,58):
+        mask_no_3 = volume_0_masks[i][3]
+        plt.imshow(mask_no_3)
+        plt.show()
+
+    
+    # volume_0_masks = torch.stack(volume_0_masks)
+    # v0_m_shape = volume_0_masks.shape
+    # volume_0_masks = volume_0_masks.view((v0_m_shape[1], v0_m_shape[0], v0_m_shape[2], v0_m_shape[3]))
+
+    # for i in range(v0_m_shape[1]):
+    #     curr_mask = volume_0_masks[i]
+    #     plt.figure(figsize=(50, 50))
+    #     plt.subplot(1, v0_m_shape[0])
+    #     for j in range(v0_m_shape[1]):
+    #         plt.axes(1, j, 3, 3)
+    #         plt.imshow(volume_0_masks[i][j])
+    #     plt.show()
+    # pass
+
+
 if __name__ == "__main__":
     # check_dataset_output()
-    check_model_forward_pass()
+    # check_targets()
+    check_consecutive_targets_maintain_spatial_consistency()
+    # check_model_forward_pass()

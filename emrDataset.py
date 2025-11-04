@@ -20,7 +20,10 @@ import tifffile as tiff
 import torch
 
 logger = logging.getLogger(__name__)
-logger.setLevel(20)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+logger.setLevel(logging.INFO)
+logger.addHandler(console_handler)
 
 class emrDataset(Dataset):
     def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3, load_from_cache=False):
@@ -56,9 +59,11 @@ class emrDataset(Dataset):
                     self.save_as_2d_slice(slice_data=_mask[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="masks") 
         else:
             pass       
-
-        self.img_files = sorted(os.listdir(f"datasets/{self.dataset_name}/imgs/"))
-        self.mask_files = sorted(os.listdir(f"datasets/{self.dataset_name}/masks/"))
+        try:
+            self.img_files = sorted(os.listdir(f"datasets/{self.dataset_name}/imgs/"))
+            self.mask_files = sorted(os.listdir(f"datasets/{self.dataset_name}/masks/"))
+        except FileNotFoundError:
+            print("SET load_from_cache to False. CAnnot find the required folder")
 
         logger.info(f"Initialized dataset - {self.dataset_name} from  dim: ({self.v_size, self.H, self.W}), and num_files: {num_files} with {self.__len__()} slices. Find 2d slice files at datasets/{self.dataset_name}/imgs/ or /masks")
         pass
@@ -75,7 +80,7 @@ class emrDataset(Dataset):
 
     def get_target_from_mask(self, mask, image_id):
         """
-        mask: torch.Tensor of shape [1, H, W]
+        mask: torch.Tensor of shape [H, W]
         returns: target dict for Mask R-CNN
         """
 
@@ -163,7 +168,7 @@ class emrDataset(Dataset):
 
         # mask / target
         slice_idx = idx % self.v_size
-        mask_slice = tiff.imread(f"datasets/{self.dataset_name}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif") # H, W
+        mask_slice = tiff.imread(f"datasets/{self.dataset_name}/masks/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif") # H, W
         mask_slice = torch.as_tensor(mask_slice, dtype=torch.float64) # H, W
 
         target = self.get_target_from_mask(mask_slice, idx)
