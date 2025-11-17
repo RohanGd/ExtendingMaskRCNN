@@ -1,0 +1,34 @@
+Instance Segmentation Metrics Summary:
+============================================================
+Jaccard Index (IoU):        0.8452
+Dice Score (global):        0.9003
+Difference in Count (DiC):  5.95
+Mean Average Precision:     0.5000
+
+
+Metrics at α = 0.50:  
+Instance Precision:  0.5848  
+Instance Recall:     0.9381  
+Instance F1:         0.7205  
+Mean IoU (matched):  0.8854  
+Mean Dice (matched): 0.9367
+
+
+Metrics at α = 0.75:  
+Instance Precision:  0.5335  
+Instance Recall:     0.8557  
+Instance F1:         0.6572  
+Mean IoU (matched):  0.9081  
+Mean Dice (matched): 0.9512
+
+
+Metrics at α = 0.90:  
+Instance Precision:  0.3818  
+Instance Recall:     0.6125  
+Instance F1:         0.4704  
+Mean IoU (matched):  0.9306  
+Mean Dice (matched): 0.9640
+
+
+Total Predictions:     139674
+Total Ground Truths:   87071

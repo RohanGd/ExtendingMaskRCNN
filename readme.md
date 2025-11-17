@@ -5,8 +5,11 @@ All class names start with _"emr"_ to avoid clashes with pytorch class name clas
 
 
 ## Reading
+- [Point-Based Weakly Supervised 2.5D Cell Segmentation](https://link.springer.com/chapter/10.1007/978-3-031-72353-7_25)
+- [HowtoBoxYourCells: An Introduction to Box Supervision for 2.5D Cell Instance Segmentation and a Study of Applications](https://www.scitepress.org/Papers/2025/131898/131898.pdf)
 - [A Flexible 2.5D Medical Image Segmentation Approach with In-Slice and Cross-Slice Attention](https://arxiv.org/pdf/2405.00130)
 - [Beyond mAP: Towards better evaluation of instance segmentation](https://arxiv.org/pdf/2207.01614)
+- [Video Instance Segmentation](https://arxiv.org/pdf/1905.04804) -- see evaluatrion metrics - IOU for multiple frames. This one also adds a new head parallel to bounding box regression, classification and masking head. THis 4th head assigns an instance label to each bounding box.
 
 ## Things to think about:
 - Varying dataset size - H, W will be handled by the transforms module. But num_slices? Currently designing so that the fusion layer will handle that.

@@ -10,6 +10,7 @@ import sys
 import logging
 import torch
 from torch.utils.data import DataLoader
+import datetime
 
 logger = logging.getLogger(__name__)
 console_handler = logging.StreamHandler()
@@ -18,10 +19,10 @@ logger.setLevel(logging.INFO)
 logger.addHandler(console_handler)
 
 
-train_imgs_dir = "Fluo-N3DH-CHO/01"
-# train_imgs_dir = "Fluo-N3DH-SIM+/01"
-train_masks_dir = "Fluo-N3DH-CHO/01_ST/SEG"
-# train_masks_dir = "Fluo-N3DH-SIM+/01_GT/SEG"
+# train_imgs_dir = "Fluo-N3DH-CHO/01"
+train_imgs_dir = "Fluo-N3DH-SIM+/01"
+# train_masks_dir = "Fluo-N3DH-CHO/01_ST/SEG"
+train_masks_dir = "Fluo-N3DH-SIM+/01_GT/SEG"
 saved_models_dir = "saved_models"
 
 if not os.path.isdir(saved_models_dir):
@@ -41,6 +42,7 @@ generator = torch.manual_seed(42)
 train_dataset = emrDataset(imgs_dir=train_imgs_dir, masks_dir=train_masks_dir, n=num_slices_per_batch, load_from_cache=True)
 dataset_name = train_dataset.dataset_name
 train_dataloader = DataLoader(dataset=train_dataset, batch_size=4, shuffle=True, collate_fn=emrCollate_fn, generator=generator)
+print(f"Number of items in train dataset: {len(train_dataloader)}")
 
 model = ExtendedMaskRCNN(n=num_slices_per_batch)
 if start_epochs != 0:
@@ -54,6 +56,7 @@ model = model.to(device=device)
 model.train()
 
 for epoch in range(start_epochs, start_epochs + num_epochs):
+    start_epoch_time = datetime.datetime.now()
     epoch_loss = 0
     iterations = 0
     for images, targets in train_dataloader:
@@ -68,10 +71,12 @@ for epoch in range(start_epochs, start_epochs + num_epochs):
 
         epoch_loss += loss.item()
         iterations += 1
-        if iterations % 10 == 0:
+        if iterations % 100 == 0:
             print(f"Loss at epoch {epoch} at iteration {iterations}: {loss:.4f}")
     
-    print(f"Epoch {epoch+1}/{start_epochs + num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}")
+    end_epoch_time = datetime.datetime.now()
+
+    print(f"Epoch {epoch+1}/{start_epochs + num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time to loop: {end_epoch_time - start_epoch_time}")
 
 torch.save(model, f=f"{saved_models_dir}/model_epochs_{start_epochs + num_epochs}_dataset_{dataset_name}.pt")
 
