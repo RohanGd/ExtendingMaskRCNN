@@ -10,6 +10,7 @@ https://www.sciencedirect.com/science/article/pii/S0925231225002565?via%3Dihub
 - INstance Recall - InsRe is defined as the quotient of the number of true positive instance predictions divided by the total number of ground truth instances.
 - Instance F1 - harmonic mean of instance precision and instance recall.
 '''
+import os
 import torch
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -258,6 +259,8 @@ class emrMetrics:
     # ------------------------- Utilities -------------------------
     def save(self, path: str = "metrics_summary.txt") -> None:
         """Save __str__ output to a file path."""
+        path = os.path.join("results", path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w',encoding='utf-8') as f:
             f.write(str(self))
 

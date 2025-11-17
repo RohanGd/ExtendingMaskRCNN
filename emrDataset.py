@@ -41,7 +41,7 @@ class emrDataset(Dataset):
             Assumes every image is of a fixed shape - (D, H, W)
         """
         img_files, mask_files = sorted(os.listdir(imgs_dir)), sorted(os.listdir(masks_dir))
-        assert len(img_files) == len(mask_files), "Mismatch between data and labels."
+        assert len(img_files) == len(mask_files), f"Mismatch between data and labels. imgs_dir - {imgs_dir}"
 
         self.dataset_name = os.path.normpath(imgs_dir).split(os.sep)[0]
         self.n = n
