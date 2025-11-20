@@ -2,64 +2,43 @@
 usage python testing_loop.py num_slices_per_batch, num_epochs
 set data dir inside file
 '''
-from emrDataset import emrDataset, emrCollate_fn
-from emrmodel.extended_mask_rcnn import ExtendedMaskRCNN
 from emrMetrics import emrMetrics
 import sys
 import torch
-from torch.utils.data import DataLoader
 from datetime import datetime
+from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger
+from emrDataloader import DataloaderBuilder
+from emrModelBuilder import ModelBuilder
 
-import configparser
-import os
-import logging
-import warnings
+# load configs and setup logger
+config_file = sys.argv[1] if len(sys.argv) > 1 else "config/test_sim+epoch10.ini"
+cfg = emrConfigManager(config_file)
+exp_dir, log_file = create_experiment_folder(cfg)
+logger = setup_logger(log_file)
+logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
 
-logger = logging.getLogger(__name__)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-logger.setLevel(logging.INFO)
-logger.addHandler(console_handler)
+# set up dataset and dataloader
+loader_builder = DataloaderBuilder(cfg, logger)
+test_dataset, test_dataloader = loader_builder.build(mode="test")
 
-config = configparser.ConfigParser()
-if len(sys.argv) > 1:
-    config_file = os.path.join(os.path.dirname(__file__), 'config', sys.argv[1])
-else:
-    config_file = os.path.join(os.path.dirname(__file__), 'config', 'test_sim+epoch10.ini')
-
-config.read(config_file)
-test_imgs_dir = config.get('DATASET', 'imgs_dir')
-test_masks_dir = config.get('DATASET', 'masks_dir')
-saved_models_dir = config.get('DATASET', 'saved_models_dir')
-model_num_epochs = config.getint('MODEL', 'start_epoch')
-num_slices_per_batch = config.getint('MODEL', 'num_slices_per_batch')
-batch_size = config.getint('TESTING', 'batch_size')
+# set up model and optimizer
+model_init = ModelBuilder(cfg, logger)
+model = model_init.load_model(test_dataset.dataset_name)
+optimizer = model_init.build_optimizer(model)
 generator = torch.manual_seed(42)
-
-test_dataset = emrDataset(imgs_dir=test_imgs_dir, masks_dir=test_masks_dir, n=num_slices_per_batch, load_from_cache=True)
-dataset_name = test_dataset.dataset_name
-test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True, collate_fn=emrCollate_fn, generator=generator)
-logger.info(f"Number of items in test dataset: {len(test_dataloader)} with batch_size {batch_size}. Total slices: {len(test_dataset)}")
-
-# load the model
-model = ExtendedMaskRCNN(n=num_slices_per_batch)
-if os.path.exists(f"{saved_models_dir}/model_epochs_{model_num_epochs}_dataset_{dataset_name}.pt"):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=FutureWarning)
-        model = torch.load(f"{saved_models_dir}/model_epochs_{model_num_epochs}_dataset_{dataset_name}.pt")
-        logger.info(f"Loaded model from {saved_models_dir}/model_epochs_{model_num_epochs}_dataset_{dataset_name}.pt")
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = model.to(device=device)
 model.eval()
 
+num_epochs = model_init.start_epochs
+
 # testing loop
 start_time = datetime.now()
 with torch.no_grad():
-
     metrics = emrMetrics()
     i = 0
     for images, targets in test_dataloader:
+        batch_start_time = datetime.now()
         images = images.to(device)
         targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
         
@@ -67,10 +46,10 @@ with torch.no_grad():
         metrics.update(preds, targets)
 
         i += 1
-        logger.info(f"Progress {i} / {len(test_dataloader)}")
+        logger.info(f"Progress {i} / {len(test_dataloader)} - Time taken = {datetime.now() - batch_start_time}")
 
     logger.info(metrics)
-    metrics.save(path=f"model_epochs_{model_num_epochs}_dataset_{dataset_name}.txt")
-    logger.info(f"Saved results to results/model_epochs_{model_num_epochs}_dataset_{dataset_name}.txt")
+    metrics.save(path=f"{exp_dir}/results_model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt")
+    logger.info(f"Saved results to results/model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt")
 end_time = datetime.now()
 logger.info(f"TIME TAKEN: {end_time - start_time}")

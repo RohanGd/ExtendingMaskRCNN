@@ -275,7 +275,7 @@ class emrMetrics:
 
         for alpha in self.overlap_thresholds:
             key = f"@{alpha:.2f}".replace('.', '_')
-            lines.append(f"Metrics at α = {alpha:.2f}:")
+            lines.append(f"Metrics at @ = {alpha:.2f}:")
             lines.append(f"  Instance Precision:  {results[f'instance_precision{key}']:.4f}")
             lines.append(f"  Instance Recall:     {results[f'instance_recall{key}']:.4f}")
             lines.append(f"  Instance F1:         {results[f'instance_f1{key}']:.4f}")
