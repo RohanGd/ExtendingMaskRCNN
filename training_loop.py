@@ -13,7 +13,7 @@ from emrModelBuilder import ModelBuilder
 # load configs and setup logger
 config_file = sys.argv[1] if len(sys.argv) > 1 else "config/train_sim+epoch0+1.ini"
 cfg = emrConfigManager(config_file)
-exp_dir, log_file = create_experiment_folder(cfg)
+exp_dir,exp_name, log_file = create_experiment_folder(cfg)
 logger = setup_logger(log_file)
 logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
 
@@ -33,8 +33,8 @@ model.train()
 
 # looping params
 start_epochs = model_init.start_epochs
-saved_models_dir = model_init.saved_dir
 num_epochs = cfg.get_int("LOOP", "num_epochs", 1)
+save_path = cfg.get("LOOP", "save_path", str(datetime.datetime.now()))
 print_rate = cfg.get_int("LOOP", "print_rate", 100)
 
 # training loop
@@ -60,6 +60,6 @@ for epoch in range(start_epochs, start_epochs + num_epochs):
     
     end_epoch_time = datetime.datetime.now()
     logger.info(f"Epoch {epoch+1}/{start_epochs + num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}")
-    ckpt_path = f"{saved_models_dir}/model_epochs_{epoch+1}_dataset_{train_dataset.dataset_name}.pt"
+    ckpt_path = f"{save_path}({epoch+1}_outof_{start_epochs+num_epochs}).pt"
     torch.save(model, f=ckpt_path)
-    logger.info(f"Model Saved at location: {ckpt_path}.")
+    logger.info(f"Model Saved at location: {ckpt_path}")

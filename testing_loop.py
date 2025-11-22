@@ -13,7 +13,7 @@ from emrModelBuilder import ModelBuilder
 # load configs and setup logger
 config_file = sys.argv[1] if len(sys.argv) > 1 else "config/test_sim+epoch10.ini"
 cfg = emrConfigManager(config_file)
-exp_dir, log_file = create_experiment_folder(cfg)
+exp_dir, exp_name, log_file = create_experiment_folder(cfg)
 logger = setup_logger(log_file)
 logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
 
@@ -49,7 +49,7 @@ with torch.no_grad():
         logger.info(f"Progress {i} / {len(test_dataloader)} - Time taken = {datetime.now() - batch_start_time}")
 
     logger.info(metrics)
-    metrics.save(path=f"{exp_dir}/results_model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt")
+    metrics.save(path=f"{exp_name}/results_exp_{exp_name}_model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt")
     logger.info(f"Saved results to results/model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt")
 end_time = datetime.now()
 logger.info(f"TIME TAKEN: {end_time - start_time}")

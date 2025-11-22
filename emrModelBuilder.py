@@ -8,7 +8,6 @@ class ModelBuilder:
         self.cfg = cfg
         self.logger = logger
         self.start_epochs = 0
-        self.saved_dir = "saved_models"
 
     def load_model(self, dataset_name="None"):
         num_slices_per_batch = self.cfg.get_int("MODEL", "num_slices_per_batch", 3)
@@ -53,21 +52,16 @@ class ModelBuilder:
 
         # Load checkpoint only if start_epochs != 0
         self.start_epochs = self.cfg.get_int("LOOP", "start_epochs", 0)
-        self.saved_dir = self.cfg.get("LOOP", "saved_models_dir")
+        self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "no checkpoint path specified")
 
-        if self.start_epochs != 0:
-            ckpt_path = os.path.join(
-                self.saved_dir,
-                f"model_epochs_{self.start_epochs}_dataset_{dataset_name}.pt"
-            )
-
-            if os.path.exists(ckpt_path):
+        if self.start_epochs != 0 and self.ckpt_path != "":
+            if os.path.exists(self.ckpt_path):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=FutureWarning)
-                    model = torch.load(ckpt_path)
-                    self.logger.info(f"Loaded model: {ckpt_path}")
+                    model = torch.load(self.ckpt_path)
+                    self.logger.info(f"Loaded model: {self.ckpt_path}")
             else:
-                self.logger.warning(f"Checkpoint not found: {ckpt_path}")
+                self.logger.warning(f"Checkpoint not found: {self.ckpt_path}")
         else:
             self.logger.info(f"Created model.")
         return model

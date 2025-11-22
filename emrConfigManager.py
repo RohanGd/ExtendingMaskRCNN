@@ -65,7 +65,7 @@ def create_experiment_folder(cfg):
 
     log_file = os.path.join(exp_dir, "train.log")        
 
-    return exp_dir, log_file
+    return exp_dir, name, log_file
 
 def setup_logger(log_path):
     logger = logging.getLogger("TRAIN")
