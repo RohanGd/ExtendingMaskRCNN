@@ -3,11 +3,14 @@ import napari
 import sys
 
 
-if sys.argv == 1:
+if len(sys.argv) == 1:
         
     # Load the tif stacks
-    img = tifffile.imread("Fluo-N3DH-SIM+/01/t000.tif")          # raw data, shape (59, 343, 649)
-    seg = tifffile.imread("Fluo-N3DH-SIM+/01_GT/SEG/man_seg000.tif")      # segmentation mask, same shape
+    img = tifffile.imread("Fluo-N3DH-SIM+/02/t050.tif")          # raw data, shape (59, 343, 649)
+    img= tifffile.imread("Fluo-N3DH-SIM+_joined/val/imgs/002.tif")
+    seg = tifffile.imread("Fluo-N3DH-SIM+/02_GT/SEG/man_seg050.tif")      # segmentation mask, same shape
+    seg= tifffile.imread("Fluo-N3DH-SIM+_joined/val/masks/002.tif")
+
 
     # Launch napari viewer
     viewer = napari.Viewer()

@@ -1,6 +1,7 @@
 /venv
 /Fluo-N3DH-SIM+
 /Fluo-N3DH-CHO
+/Fluo-N3DH-SIM+_joined
 **/__pycache__/
 /datasets
 /saved_models

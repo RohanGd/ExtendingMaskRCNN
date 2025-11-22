@@ -60,4 +60,6 @@ for epoch in range(start_epochs, start_epochs + num_epochs):
     
     end_epoch_time = datetime.datetime.now()
     logger.info(f"Epoch {epoch+1}/{start_epochs + num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}")
-    torch.save(model, f=f"{saved_models_dir}/model_epochs_{epoch+1}_dataset_{train_dataset.dataset_name}.pt")
+    ckpt_path = f"{saved_models_dir}/model_epochs_{epoch+1}_dataset_{train_dataset.dataset_name}.pt"
+    torch.save(model, f=ckpt_path)
+    logger.info(f"Model Saved at location: {ckpt_path}.")

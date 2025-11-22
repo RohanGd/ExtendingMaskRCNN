@@ -21,14 +21,18 @@ class ExtendedMaskRCNN(MaskRCNN):
             in_channels = num_slices_per_batch # number of input slices
             backbone.body.conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)        
         
+        if image_mean == None:
+            image_mean = [0 for _ in range(num_slices_per_batch)]
+        if image_std == None:
+            image_std = [1 for _ in range(num_slices_per_batch)]
         super().__init__(
             backbone = backbone,
             num_classes=self.num_classes,
             # transform parameters
             min_size=min_size,
             max_size=max_size,
-            image_mean=None,
-            image_std=None,
+            image_mean=image_mean,
+            image_std=image_std,
             # RPN parameters
             rpn_anchor_generator=None,
             rpn_head=None,
