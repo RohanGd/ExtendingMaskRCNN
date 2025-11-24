@@ -17,10 +17,11 @@ import os
 from torch.utils.data import Dataset
 import tifffile as tiff
 import torch
+from emrConfigManager import setup_logger
 
 
 class emrDataset(Dataset):
-    def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3, load_from_cache=False, logger=None, mode="train"):
+    def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3, load_from_cache=True, logger=None, mode="train"):
         """
         Initializes the dataset with image and mask directories and the 2.5D context window size.
 
@@ -36,6 +37,8 @@ class emrDataset(Dataset):
         """
         img_files, mask_files = sorted(os.listdir(imgs_dir)), sorted(os.listdir(masks_dir))
         assert len(img_files) == len(mask_files), f"Mismatch between data and labels. imgs_dir - {imgs_dir}"
+        if logger == None:
+            logger = setup_logger("emrdataset.log")
 
         self.dataset_name = os.path.normpath(imgs_dir).split(os.sep)[0]
         self.mode = mode
@@ -61,8 +64,7 @@ class emrDataset(Dataset):
         except FileNotFoundError:
             raise FileNotFoundError("SET load_from_cache to False. CAnnot find the required folder")
 
-        if logger:
-            logger.info(f"Initialized dataset - {self.dataset_name} from  dim: ({self.v_size, self.H, self.W}), and num_files: {num_files} with {self.__len__()} slices. Find 2d slice files at datasets/{self.dataset_name}/{self.mode}/imgs/ or /masks")
+        logger.info(f"Initialized dataset - {self.dataset_name} from  dim: ({self.v_size, self.H, self.W}), and num_files: {num_files} with {self.__len__()} slices. Find 2d slice files at datasets/{self.dataset_name}/{self.mode}/imgs/ or /masks")
         pass
 
     def save_as_2d_slice(self, slice_data, volume_idx, slice_idx, type_):

@@ -31,14 +31,14 @@ model = model.to(device=device)
 model.eval()
 
 num_epochs = model_init.start_epochs
-
+print_rate = cfg.get_int("LOOP", "print_rate", 100)
 # testing loop
 start_time = datetime.now()
 with torch.no_grad():
     metrics = emrMetrics()
     i = 0
+    batch_start_time = datetime.now()
     for images, targets in test_dataloader:
-        batch_start_time = datetime.now()
         images = images.to(device)
         targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
         
@@ -46,10 +46,14 @@ with torch.no_grad():
         metrics.update(preds, targets)
 
         i += 1
-        logger.info(f"Progress {i} / {len(test_dataloader)} - Time taken = {datetime.now() - batch_start_time}")
+        if i % print_rate == 0:
+            logger.info(f"Progress {i} / {len(test_dataloader)} - Time taken = {datetime.now() - batch_start_time}")
+            batch_start_time = datetime.now()
+
 
     logger.info(metrics)
-    metrics.save(path=f"{exp_name}/results_exp_{exp_name}_model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt")
-    logger.info(f"Saved results to results/model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt")
+    metrics_results_save_path=f"{exp_name}/results_exp_{exp_name}_model_epochs_{num_epochs}_dataset_{test_dataset.dataset_name}.txt"
+    metrics.save(path=metrics_results_save_path)
+    logger.info(f"Saved results to {metrics_results_save_path}")
 end_time = datetime.now()
 logger.info(f"TIME TAKEN: {end_time - start_time}")

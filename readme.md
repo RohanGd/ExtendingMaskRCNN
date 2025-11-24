@@ -30,7 +30,60 @@ Possibility of gamma and contrast limiting as a learnable parameter
 # DataFlow and Architecture So Far
 
 ### emrDataset() _class
-This class is defined under the dataloaders.py file and inherits from torch.utils.data.dataset to load the dataset
+This class is defined under the emrDataset.py file and inherits from torch.utils.data.dataset to load the dataset
+THe load_from_cache parameter if set to False, will recreate 2d slices from the 3d volume, making the algorithm slow. THis can be used once and then the 2d slices can directly be referenced for future time by setting load_from_cache =True for subsequent runs.
+
+**TODO: Put this in the dataSplitter.py instead and remove this complication from the dataset. rename datasplitter to preprocess_dataset or smthng.**
+
+### emrDataLoader - DataloaderBuilder _class
+Returns dataset and dataloader based on the config file. expects emrConfigManager object.
+
+### emrConfigManager() _class
+Reads the config file and contains some helper functions for reading fromt he file
+### createExperimentFolder _func
+Creates a folder for the experiment where the log file, and the config file will be stored.
+
+**TO DO: save the results after testing in this folder.**
+Save vaildation results also in this folder
+
+### emrMetrics _class
+
+### emrModelBuilder
+reads from the cfg (config file- emrConfigManager object) to build a model using parametrs in the config file. CAn also load the model from a checkpoint path if specified in the config file. 
+
+**TODO: remove start_epochs from config_file.**
+
+### COnfig file template
+**TODO: CHANGE THIS. TOO BAD: CONFUSING!!!**
+```
+[EXPERIMENT]
+exp_root = Experiments/
+exp_name = EarlyFusion_N5_${LOOP:start_epochs}_to_15_epochs
+
+[DATASET]
+imgs_dir = Fluo-N3DH-SIM+_joined/train/imgs
+masks_dir = Fluo-N3DH-SIM+_joined/train/masks
+load_from_cache = 1
+
+[LOOP]
+start_epochs = 10
+num_epochs = 5
+learning_rate = 1e-5
+weight_decay = 1e-7
+batch_size = 4
+save_path = saved_models/${EXPERIMENT:exp_name}
+ckpt_path = saved_models/EarlyFusion_N5_10_epochs(10_outof_10).pt
+
+[MODEL]
+num_slices_per_batch = 5
+rpn_positive_fraction=0.5
+
+```
+
+
+### training_loop.py
+**TODO: add validation, compute loss on validation set, and metrics. Think about how to add it in the config file**
+Maybe just add all train_dirs, test_dirs, val_dirs in the file, and let _"mode"_ decide .
 
 
 ## Mask-RCNN Theory

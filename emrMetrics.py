@@ -9,6 +9,8 @@ https://www.sciencedirect.com/science/article/pii/S0925231225002565?via%3Dihub
 - Instance Precision - InsPr quantifies precision by calculating the ratio of correctly predicted instances to the total number of predicted instances. It is defined as the quotient of the number of true positive instance predictions divided by the total number of predictions. 
 - INstance Recall - InsRe is defined as the quotient of the number of true positive instance predictions divided by the total number of ground truth instances.
 - Instance F1 - harmonic mean of instance precision and instance recall.
+https://public.celltrackingchallenge.net/documents/SEG.pdf
+- SEG score
 '''
 import os
 import torch
@@ -54,6 +56,7 @@ class emrMetrics:
         self.total_predictions = 0
         self.total_ground_truths = 0
         self.count_differences: List[int] = []
+        self.seg_scores = list()
 
     # ------------------------- IoU computation -------------------------
     def compute_pairwise_iou(
@@ -86,9 +89,6 @@ class emrMetrics:
             masks2 = masks2.squeeze(1)
 
         # If tensors are on GPU, move to CPU for IoU computation to avoid OOM
-        device1 = masks1.device
-        device2 = masks2.device
-
         m1 = masks1.detach().cpu()
         m2 = masks2.detach().cpu()
 
@@ -143,6 +143,41 @@ class emrMetrics:
             if iou_matrix[r, c].item() >= alpha:
                 matches.append((int(r), int(c)))
         return matches
+
+
+    def jaccard(self, mask_r: torch.Tensor, mask_s: torch.Tensor) -> float:
+        inter = (mask_r & mask_s).sum().item()
+        union = (mask_r | mask_s).sum().item()
+        if union == 0:
+            return 0.0
+        return inter / union
+
+
+    def SEG(self, gt_masks, pred_masks):
+        if len(gt_masks) == 0:
+            return 0.0
+        
+        seg_scores = list()
+        gt_masks = [m.bool() for m in gt_masks]
+        pred_masks = [(m > 0.5).bool() for m in pred_masks]
+
+        for R in gt_masks:
+            R_area = R.sum().item() # area since it is bools, srea = simple sum
+            best_S = None
+            best_inter = 0
+
+            for S in pred_masks:
+                inter = (R & S).sum().item()
+                if inter > 0.5 * R_area and inter > best_inter:
+                    best_inter = inter
+                    best_S = S
+            if best_S == None:
+                seg_scores.append(0.0)
+            else:
+                seg_scores.append(self.jaccard(R, best_S))
+        
+        return sum(seg_scores) / len(seg_scores)
+
 
     # ------------------------- Update (per batch) -------------------------
     def update(self, preds_batch: List[Dict], targets_batch: List[Dict]):
@@ -201,6 +236,8 @@ class emrMetrics:
                     dice_val = (2.0 * iou_val) / (1.0 + iou_val + 1e-6)
                     stats['matched_ious'].append(float(iou_val))
                     stats['matched_dice'].append(float(dice_val))
+
+            self.seg_scores.append(self.SEG(target_masks, pred_masks))
             
             torch.cuda.empty_cache()
 
@@ -254,6 +291,10 @@ class emrMetrics:
         metrics['total_predictions'] = int(self.total_predictions)
         metrics['total_ground_truths'] = int(self.total_ground_truths)
 
+        SEG_score = torch.tensor(self.seg_scores)
+        metrics["SEG_score"] = SEG_score.mean().item()
+        metrics["SEG_score_median"] =SEG_score.median()
+
         return metrics
 
     # ------------------------- Utilities -------------------------
@@ -284,6 +325,8 @@ class emrMetrics:
 
         lines.append(f"Total Predictions:     {results['total_predictions']}")
         lines.append(f"Total Ground Truths:   {results['total_ground_truths']}")
+        lines.append(f"SEG_score mean:        {results['SEG_score']}")
+        lines.append(f"SEG_score median:      {results['SEG_score_median']}")
 
         return "\n".join(lines)
 
