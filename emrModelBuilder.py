@@ -58,7 +58,8 @@ class ModelBuilder:
             if os.path.exists(self.ckpt_path):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=FutureWarning)
-                    model = torch.load(self.ckpt_path)
+                    checkpoint = torch.load(self.ckpt_path)
+                    model.load_state_dict(checkpoint.state_dict())
                     self.logger.info(f"Loaded model: {self.ckpt_path}")
             else:
                 self.logger.warning(f"Checkpoint not found: {self.ckpt_path}")
