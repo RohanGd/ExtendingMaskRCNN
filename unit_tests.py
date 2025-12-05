@@ -4,11 +4,11 @@ def check_dataset_output():
     import torch, torchvision
     from torchvision.models.detection import maskrcnn_resnet50_fpn
 
-    imgs_dir = "Fluo-N3DH-CHO/01"
-    masks_dir = "Fluo-N3DH-CHO/01_ST/SEG"
+    imgs_dir = "datasets/Fluo-N3DH-CHO/train/imgs"
+    masks_dir = "datasets/Fluo-N3DH-CHO/train/masks"
 
     num_slices = 3
-    dataset = emrDataset(imgs_dir, masks_dir, num_slices , load_from_cache=True) # num_slice, n=5
+    dataset = emrDataset(imgs_dir, masks_dir, num_slices) # num_slice, n=5
 
     from torch.utils.data import DataLoader
     generator = torch.manual_seed(42)
@@ -49,8 +49,8 @@ def check_model_forward_pass():
     from torch.utils.data import DataLoader
 
 
-    imgs_dir = "Fluo-N3DH-CHO/01"
-    masks_dir = "Fluo-N3DH-CHO/01_ST/SEG"
+    imgs_dir = "datasets/Fluo-N3DH-CHO/train/imgs"
+    masks_dir = "datasets/Fluo-N3DH-CHO/train/masks"
 
     num_slices = 3
     dataset = emrDataset(imgs_dir, masks_dir, num_slices , load_from_cache=True) # num_slice, n=5
@@ -80,8 +80,8 @@ def check_targets():
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
     
-    imgs_dir = "Fluo-N3DH-SIM+/01"
-    masks_dir = "Fluo-N3DH-SIM+/01_GT/SEG"
+    imgs_dir = "datasets/Fluo-N3DH-CHO/train/imgs"
+    masks_dir = "datasets/Fluo-N3DH-CHO/train/masks"
 
     num_slices = 3
     dataset = emrDataset(imgs_dir, masks_dir, num_slices , load_from_cache=True) # num_slice, n=5
@@ -92,7 +92,7 @@ def check_targets():
         print(target['masks'].shape)
         for i in range(target['masks'].shape[0]):
             t = target['masks'][i]
-            plt.figure(figsize=(10,10))
+            plt.figure(figsize=(10,10), cmap='grey')
             plt.imshow(t)
             plt.show()   
 
@@ -102,8 +102,8 @@ def check_consecutive_targets_maintain_spatial_consistency():
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
 
-    imgs_dir = "Fluo-N3DH-SIM+/01"
-    masks_dir = "Fluo-N3DH-SIM+/01_GT/SEG"
+    imgs_dir = "datasets/Fluo-N3DH-CHO/train/imgs"
+    masks_dir = "datasets/Fluo-N3DH-CHO/train/masks"
 
     num_slices = 3
     dataset = emrDataset(imgs_dir, masks_dir, num_slices , load_from_cache=True) # num_slice, n=5
@@ -121,7 +121,7 @@ def check_consecutive_targets_maintain_spatial_consistency():
             break
     
     # eg. for each slice print the 3rd mask. I printed the 
-    for i in range(35,58):
+    for i in range(0, 5):
         mask_no_3 = volume_0_masks[i][3]
         plt.imshow(mask_no_3)
         plt.show()
@@ -143,7 +143,7 @@ def check_consecutive_targets_maintain_spatial_consistency():
 
 
 if __name__ == "__main__":
-    # check_dataset_output()
-    # check_targets()
+    check_dataset_output()
+    check_targets()
     check_consecutive_targets_maintain_spatial_consistency()
-    # check_model_forward_pass()
+    check_model_forward_pass()

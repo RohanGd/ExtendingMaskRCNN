@@ -48,12 +48,21 @@ class emrConfigManager:
         return path
 
 
-def create_experiment_folder(cfg):
-    root = cfg.get("EXPERIMENT", "exp_root")
+def create_experiment_folder(cfg, mode):
+    """Creates an experiment folder
+
+    Args:
+        cfg (emrConfigManager): emrConfigManager object for the configfile 
+        mode (str): "train" | "test" | "val"
+
+    Returns:
+        exp_dir, name, log_file
+    """
+    root = "Experiments"
     name = cfg.get("EXPERIMENT", "exp_name")
 
     t = time.strftime("%Y%m%d_%H%M%S")
-    exp_dir = os.path.join(root, f"{name}_{t}")
+    exp_dir = os.path.join(root, mode, f"{name}_{t}")
 
     os.makedirs(exp_dir, exist_ok=True)
 

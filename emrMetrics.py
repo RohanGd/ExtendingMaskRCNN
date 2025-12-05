@@ -17,7 +17,7 @@ import torch
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import List, Dict, Tuple, Optional
-
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 class emrMetrics:
     """
@@ -238,7 +238,6 @@ class emrMetrics:
                     stats['matched_dice'].append(float(dice_val))
 
             self.seg_scores.append(self.SEG(target_masks, pred_masks))
-            
             torch.cuda.empty_cache()
 
     # ------------------------- Compute final metrics -------------------------
@@ -300,8 +299,6 @@ class emrMetrics:
     # ------------------------- Utilities -------------------------
     def save(self, path: str = "metrics_summary.txt") -> None:
         """Save __str__ output to a file path."""
-        path = os.path.join("results", path)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w',encoding='utf-8') as f:
             f.write(str(self))
 

@@ -51,16 +51,13 @@ class ModelBuilder:
         model = ExtendedMaskRCNN(**model_params)
 
         # Load checkpoint only if start_epochs != 0
-        self.start_epochs = self.cfg.get_int("LOOP", "start_epochs", 0)
         self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "no checkpoint path specified")
 
-        if self.start_epochs != 0 and self.ckpt_path != "":
+        if self.ckpt_path != "":
             if os.path.exists(self.ckpt_path):
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=FutureWarning)
-                    checkpoint = torch.load(self.ckpt_path)
-                    model.load_state_dict(checkpoint.state_dict())
-                    self.logger.info(f"Loaded model: {self.ckpt_path}")
+                checkpoint = torch.load(self.ckpt_path, weights_only=True)
+                model.load_state_dict(checkpoint)
+                self.logger.info(f"Loaded model: {self.ckpt_path}")
             else:
                 self.logger.warning(f"Checkpoint not found: {self.ckpt_path}")
         else:

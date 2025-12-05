@@ -18,7 +18,9 @@ from torch.utils.data import Dataset
 import tifffile as tiff
 import torch
 from emrConfigManager import setup_logger
+import warnings
 
+warnings.simplefilter("ignore", category=FutureWarning)
 
 class emrDataset(Dataset):
     def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3, load_from_cache=True, logger=None, mode="train"):
@@ -36,94 +38,27 @@ class emrDataset(Dataset):
             Assumes every image is of a fixed shape - (D, H, W)
         """
         img_files, mask_files = sorted(os.listdir(imgs_dir)), sorted(os.listdir(masks_dir))
-        assert len(img_files) == len(mask_files), f"Mismatch between data and labels. imgs_dir - {imgs_dir}"
+        assert len(img_files) == len(mask_files), f"Mismatch between data and labels. imgs_dir - {imgs_dir} - {len(img_files), len(mask_files)}"
         if logger == None:
             logger = setup_logger("emrdataset.log")
 
-        self.dataset_name = os.path.normpath(imgs_dir).split(os.sep)[0]
+        self.dataset_name = os.path.normpath(imgs_dir).split(os.sep)[1]
         self.mode = mode
         self.n = n
-        self.v_size, self.H, self.W = tiff.TiffFile(os.path.join(imgs_dir, img_files[0])).series[0].shape # total number of slices per volume /3d image, and H, W
+        self.H, self.W = torch.load(os.path.join(imgs_dir, img_files[0])).shape # total number of slices per volume /3d image, and H, W
+        self.v_size = len([f for f in img_files if f.startswith("0000")])
         num_files = len(img_files)
-        self.v, self.s = len(str(num_files)) + 1, len(str(self.v_size)) + 1
+        # self.v, self.s = len(str(num_files)) + 1, len(str(self.v_size)) + 1
+        self.v, self.s = 4, 3
 
-        if not load_from_cache:
-            logger.info("Creating 2d slices. CONFIG PARAMETER load_from_cache set to false!")
-            for i in range(num_files):
-                _img = tiff.imread(os.path.join(imgs_dir, img_files[i]))
-                _mask = tiff.imread(os.path.join(masks_dir, mask_files[i]))
-                assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_files[i]} and {mask_files[i]}"
-                for slice_idx in range(_img.shape[0]):
-                    self.save_as_2d_slice(slice_data=_img[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="imgs")
-                    self.save_as_2d_slice(slice_data=_mask[slice_idx], volume_idx=i, slice_idx=slice_idx, type_="masks") 
-        else:
-            pass       
         try:
             self.img_files = sorted(os.listdir(f"datasets/{self.dataset_name}/{self.mode}/imgs/"))
             self.mask_files = sorted(os.listdir(f"datasets/{self.dataset_name}/{self.mode}/masks/"))
         except FileNotFoundError:
-            raise FileNotFoundError("SET load_from_cache to False. CAnnot find the required folder")
+            raise FileNotFoundError("CAnnot find the required folder. Run dataSplitter.py to create dataset.")
 
         logger.info(f"Initialized dataset - {self.dataset_name} from  dim: ({self.v_size, self.H, self.W}), and num_files: {num_files} with {self.__len__()} slices. Find 2d slice files at datasets/{self.dataset_name}/{self.mode}/imgs/ or /masks")
         pass
-
-    def save_as_2d_slice(self, slice_data, volume_idx, slice_idx, type_):
-        """
-        type_: "imgs" or "masks"
-        """
-        save_dir = f"datasets/{self.dataset_name}/{self.mode}/{type_}"
-        if not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
-        tiff.imwrite(f"{save_dir}/{str(volume_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif", data=slice_data)
-        pass
-
-    def get_target_from_mask(self, mask, image_id):
-        """
-        mask: torch.Tensor of shape [H, W]
-        returns: target dict for Mask R-CNN
-        """
-
-        # get unique object ids (excluding background)
-        obj_ids = torch.unique(mask)
-        obj_ids = obj_ids[obj_ids != 0]
-
-        # create binary masks for each object id
-        masks = (mask[None, :, :] == obj_ids[:, None, None]).to(torch.uint8)  # [N, H, W]
-
-        boxes = []
-        for m in masks:
-            pos = torch.where(m)
-            if len(pos[0]) == 0:
-                continue
-            xmin, xmax = pos[1].min(), pos[1].max()
-            ymin, ymax = pos[0].min(), pos[0].max()
-
-            if xmax <= xmin or ymax <= ymin:
-                continue  # this gave error in training (basically empty boxes if xmin == xmax or ymin == ymax)
-            boxes.append([xmin, ymin, xmax, ymax])
-
-        if len(boxes) == 0:
-            boxes = torch.zeros((0, 4), dtype=torch.float32)
-            labels = torch.zeros((0,), dtype=torch.int64)
-            masks = torch.zeros((0, *mask.shape), dtype=torch.uint8)
-        else:
-            boxes = torch.as_tensor(boxes, dtype=torch.float32)
-            labels = torch.ones((len(boxes),), dtype=torch.int64)
-
-        area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-        iscrowd = torch.zeros((len(labels),), dtype=torch.int64)
-
-        target = {
-            "boxes": boxes,
-            "labels": labels,
-            "masks": masks,
-            "image_id": torch.tensor([image_id]),
-            "area": area,
-            "iscrowd": iscrowd
-        }
-
-        return target
-    
 
     def __len__(self):
         '''
@@ -159,18 +94,14 @@ class emrDataset(Dataset):
                 img_slice = torch.ones(size=(self.H, self.W)) * eps
             else:
                 # get slice at v_idx at slice_idx
-                img_slice = tiff.imread(f"datasets/{self.dataset_name}/{self.mode}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif")
-                img_slice = torch.as_tensor(img_slice, dtype=torch.float32) # H,W
+                img_slice = torch.load(f"datasets/{self.dataset_name}/{self.mode}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.pt")
             img_slices.append(img_slice)
         
         img_slices = torch.stack(img_slices)
 
         # mask / target
         slice_idx = idx % self.v_size
-        mask_slice = tiff.imread(f"datasets/{self.dataset_name}/{self.mode}/masks/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.tif") # H, W
-        mask_slice = torch.as_tensor(mask_slice, dtype=torch.float64) # H, W
-
-        target = self.get_target_from_mask(mask_slice, idx)
+        target = torch.load(f"datasets/{self.dataset_name}/{self.mode}/masks/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.pt")
 
         return img_slices, target
 
