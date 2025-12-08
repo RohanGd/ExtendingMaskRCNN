@@ -11,6 +11,8 @@ from torch import nn, Tensor
 
 from torchvision.utils import _log_api_usage_once
 
+from emrmodel.fusion_mlp_example import SliceSEFusion
+
 
 class GeneralizedRCNN(nn.Module):
     """
@@ -97,8 +99,15 @@ class GeneralizedRCNN(nn.Module):
                         "All bounding boxes should have positive height and width."
                         f" Found invalid box {degen_bb} for target at index {target_idx}.",
                     )
+        
+        per_slice_features = self.backbone(images.tensors) # OrderedDict('0': list[torch.Size([B, 256, 161, 163], ...)], '1': list[torch.Size([B, 256, 81, 82]), ...], '2': list[torch.Size([B, 256, 41, 41]), ...], '3': list[torch.Size([B, 256, 21, 21]) ...])
 
-        features = self.backbone(images.tensors)
+        features = OrderedDict()
+        for key in per_slice_features.keys():
+            scale_feature = per_slice_features[key] # eg.  list[torch.Size([B, 256, 161, 163], ...)]
+            squeeze_n_excite_feature = self.squeeze_and_exciteMLP_fusion(scale_feature) # torch.Size([B, 256, 161, 163], ...)
+            features.update({ key: squeeze_n_excite_feature })
+        
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
         proposals, proposal_losses = self.rpn(images, features, targets)

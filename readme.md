@@ -134,6 +134,10 @@ in the init function of Slice_MaskRCNN in model.py, check if modifying the learn
 
 The MaskRCNN inherits from FasterRCNN which inherits from GeneralizedRCNN which inherits from the base nn.Module. The forward function is defined in the GeneralizedRCNN.
 
+
+### Backbone
+####  [FPN](venv/Lib/site-packages/torchvision/ops/feature_pyramid_network.py)
+
 ### [GeneralizedRCNN](venv/Lib/site-packages/torchvision/models/detection/generalized_rcnn.py)
 
 init recieves

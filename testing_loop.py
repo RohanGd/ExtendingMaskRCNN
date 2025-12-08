@@ -47,7 +47,6 @@ def main():
             targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
             
             preds = model(images)
-            print('test', preds[0]['masks'].shape)
             metrics.update(preds, targets)
 
             i += 1

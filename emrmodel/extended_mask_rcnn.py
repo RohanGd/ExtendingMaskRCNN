@@ -1,4 +1,6 @@
 from emrmodel.mask_rcnn import MaskRCNN
+from emrmodel.stacked_fpn_backbone import Stacked_Resnet50FPN_Backbone
+from emrmodel.fusion_mlp_example import SliceSEFusion
 from torchvision.models.detection.backbone_utils import BackboneWithFPN, _validate_trainable_layers, _resnet_fpn_extractor
 from torchvision.models.resnet import resnet50, ResNet50_Weights
 import torch
@@ -13,14 +15,17 @@ class ExtendedMaskRCNN(MaskRCNN):
         self.training = True
         self.num_classes = num_classes
 
-        if backbone == None: # see maskrcnn_resnet50_fpn in torchvision/models/detection/mask_rcnn.py
-            norm_layer = misc_nn_ops.FrozenBatchNorm2d
-            trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
-            backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
-            backbone = _resnet_fpn_extractor(backbone, trainable_backbone_layers)
-            in_channels = num_slices_per_batch # number of input slices
-            backbone.body.conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)        
-        
+        # if backbone == None: # see maskrcnn_resnet50_fpn in torchvision/models/detection/mask_rcnn.py
+        #     norm_layer = misc_nn_ops.FrozenBatchNorm2d
+        #     trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
+        #     backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
+        #     backbone = _resnet_fpn_extractor(backbone, trainable_backbone_layers)
+        #     in_channels = num_slices_per_batch # number of input slices
+        #     backbone.body.conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)   
+
+        if backbone == None:
+            backbone = Stacked_Resnet50FPN_Backbone(num_slices=num_slices_per_batch)     
+       
         if image_mean == None:
             image_mean = [0 for _ in range(num_slices_per_batch)]
         if image_std == None:
@@ -63,6 +68,11 @@ class ExtendedMaskRCNN(MaskRCNN):
             mask_head=mask_head,
             mask_predictor=mask_predictor,
             **kwargs,
+        )
+
+        self.squeeze_and_exciteMLP_fusion = SliceSEFusion(
+            num_slices=num_slices_per_batch, 
+            channels=backbone.out_channels
         )
 
         return
