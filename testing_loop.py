@@ -34,7 +34,6 @@ def main():
     model = model.to(device=device)
     model.eval()
 
-    num_epochs = model_init.start_epochs
     print_rate = cfg.get_int("LOOP", "print_rate", 100)
     # testing loop
     start_time = datetime.now()
