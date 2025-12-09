@@ -34,7 +34,6 @@ def main():
     model = model.to(device=device)
     model.eval()
 
-    num_epochs = model_init.start_epochs
     print_rate = cfg.get_int("LOOP", "print_rate", 100)
     # testing loop
     start_time = datetime.now()
@@ -47,7 +46,6 @@ def main():
             targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
             
             preds = model(images)
-            print('test', preds[0]['masks'].shape)
             metrics.update(preds, targets)
 
             i += 1
