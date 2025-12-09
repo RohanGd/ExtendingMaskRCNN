@@ -31,8 +31,37 @@ print(temp_img.shape)
 
 # print(model.backbone.body.conv1.in_channels)
 
+
+model.eval()
+pred = model(temp_img)
+print('pred')
+print(pred)
+
 model.train()
 loss = model(temp_img, temp_target)
 
-print('output')
+print('loss')
 print(loss)
+
+
+
+
+# import torch
+# import torch.nn.functional as F
+# # Stack slices: [B, S, C, H, W]
+# # x = torch.stack(feats_per_slice, dim=1)
+# [B, S, C, H, W] = [1, 3, 2, 5, 5]
+# k = 3
+# x = torch.rand(size=(B, S, C, H, W))
+# print(x.shape)
+
+# pad_h = (k - H % k) % k
+# pad_w = (k - W % k) % k
+
+# x = F.pad(x, (0, pad_w, 0, pad_h))
+# print(x.shape)
+
+# x = x.view(B, S, C, k*k, (H + pad_h)//k, (W + pad_w)//k)
+
+# print(x.shape)
+# print()

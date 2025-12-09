@@ -1,6 +1,6 @@
 from emrmodel.mask_rcnn import MaskRCNN
 from emrmodel.stacked_fpn_backbone import Stacked_Resnet50FPN_Backbone
-from emrmodel.fusion_mlp_example import SliceSEFusion
+from emrmodel.fusion_mlp_example import SliceSEFusion, SliceSEFusionFixedWindow
 from torchvision.models.detection.backbone_utils import BackboneWithFPN, _validate_trainable_layers, _resnet_fpn_extractor
 from torchvision.models.resnet import resnet50, ResNet50_Weights
 import torch
@@ -70,7 +70,7 @@ class ExtendedMaskRCNN(MaskRCNN):
             **kwargs,
         )
 
-        self.squeeze_and_exciteMLP_fusion = SliceSEFusion(
+        self.squeeze_and_exciteMLP_fusion = SliceSEFusionFixedWindow(
             num_slices=num_slices_per_batch, 
             channels=backbone.out_channels
         )
