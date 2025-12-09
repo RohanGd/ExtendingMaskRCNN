@@ -1,4 +1,6 @@
-
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+print(sys.path)
 
 from emrmodel.extended_mask_rcnn import ExtendedMaskRCNN
 import torch

@@ -1,3 +1,7 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+print(sys.path)
+
 def check_dataset_output():
     from emrDataset import emrDataset, emrCollate_fn
     from torch.utils.data import DataLoader
