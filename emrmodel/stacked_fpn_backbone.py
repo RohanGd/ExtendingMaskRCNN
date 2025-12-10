@@ -19,24 +19,7 @@ class Stacked_Resnet50FPN_Backbone(BackboneWithFPN):
         backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
         fpn_maker_tuple = _resnet_fpn_tuple_maker(backbone=backbone, trainable_layers=trainable_backbone_layers, norm_layer=norm_layer)
         super().__init__(fpn_maker_tuple[0], fpn_maker_tuple[1], fpn_maker_tuple[2], fpn_maker_tuple[3])
-        self.body.conv1 = torch.nn.Conv2d(num_slices, 64, kernel_size=7, stride=2, padding=3, bias=False)
-
-        # stack of backbones. One for each slice.
-        self.stacked_backbones = nn.ModuleList()
-        for _ in range(num_slices):
-            self.stacked_backbones.append(self.create_resnet50_backbone())
-
-
-    def create_resnet50_backbone(self):
-        '''
-        Craetes a resnet50 FPN backbone, with in_channels = 1 (one backbone for each slice)
-        '''
-        norm_layer = misc_nn_ops.FrozenBatchNorm2d
-        trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
-        backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
-        backbone = _resnet_fpn_extractor(backbone, trainable_backbone_layers)
-        backbone.body.conv1 = torch.nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        return backbone
+        self.body.conv1 = torch.nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
     
 
     def forward(self, x):
@@ -52,7 +35,7 @@ class Stacked_Resnet50FPN_Backbone(BackboneWithFPN):
         for slice_id in range(self.num_slices):
             slice = x[:, slice_id, :, :] # (B, H, W)
             slice = slice.unsqueeze(1)  # (B, 1, H, W)
-            slice_features = self.stacked_backbones[slice_id](slice) # OrderedDict
+            slice_features = self.fpn(self.body(slice))
             for key in slice_features.keys():
                 feature_map = slice_features.get(key) # feature map 
                 level_features = stacked_features.get(key, [])
