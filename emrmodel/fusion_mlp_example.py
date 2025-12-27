@@ -96,40 +96,47 @@ class SliceSEFusionFixedWindow(nn.Module):
         pad_h = (k - H % k) % k
         pad_w = (k - W % k) % k
 
+        print("x.shape before padding", x.shape)
         x = F.pad(x, (0, pad_w, 0, pad_h))
-        print(x.shape)
+        print("x.shape after padding", x.shape)
 
         x = x.view(B, S, C, k*k, (H + pad_h)//k, (W + pad_w)//k) # B, S , C, K*K, ~ H / K, ~ W /K
 
-        print(x.shape)
+        print("x.shape after creating windows", x.shape)
         # pooling over K*k -> B, S, C, K*K
         g = x.mean(dim=(-1, -2))
         g = g.view(B, S, k*k, C) 
-        print(g.shape)
+        print("g.shape", g.shape)
 
         g_flat = g.reshape(B*S*k*k, C)
         
-        # MLP to get one logit per slice element: [B*S, 1] -> [B, S]
+        # MLP to get one logit per slice element: [B*S*k*k, C] -> [B, k*k, S]
         h = F.relu(self.fc1(g_flat))
-        print(h.shape)
-        logits_dynamic = self.fc2(h).reshape(B, k*k, self.num_slices)
-        print(logits_dynamic.shape)
+        print("MLP hidden layer shape", h.shape)
+        logits_dynamic = self.fc2(h)
+        print("MLP output shape before reshaping", logits_dynamic.shape)
+        logits_dynamic = logits_dynamic.reshape(B, k*k, self.num_slices) # made S the last dimension so that I can broadcast self.static_logits
+        print("MLP output shape", logits_dynamic.shape)
 
         # # Add static per-slice logits and softmax along slice dimension
         logits = logits_dynamic + self.static_logits  # broadcast over batch
-        weights = F.softmax(logits, dim=1)            # [B, K*K, S]
+        print("logits shape before softmax", logits.shape)
+        weights = F.softmax(logits, dim=2)            # [B, K*K, S] 
 
-        print(weights.shape)
+        print("Weights shape", weights.shape)
 
         # Apply weights to feature maps: [B, S, 1, 1, 1] for broadcasting
         w = weights.view(B, self.num_slices, 1, k*k, 1, 1)
 
-        print(w.shape, x.shape)
+        print("weights and x shape before multiplying for weighting", w.shape, x.shape)
 
-        fused = (x* w).sum(dim=1)  # [B, C, k*k, ~H/k, ~W/k]
+        fused = x * w
+        print("fused shape before summing: ", fused.shape)
+        fused = fused.sum(dim=1)  # [B, C, k*k, ~H/k, ~W/k] # summing along the S dim
+        print("fused.shape after summing",fused.shape)
         h_k, w_k = fused.shape[-2], fused.shape[-1]
         fused = fused.reshape(B, C, k * h_k, k * w_k)
-        print(fused.shape)
+        print("fused.shape after reshaping",fused.shape)
         return fused
 
     
@@ -139,11 +146,20 @@ class SliceSEFusionFixedWindow(nn.Module):
 
 
 if __name__ == "__main__":
-    obj = SliceSEFusionFixedWindow(3, 256)
 
-    x = torch.rand((2, 256, 161, 163))
-    # x = torch.rand((2, 256, 21, 21))
+    x = torch.rand((21, 21))
+    print(x.shape)
+    v = x.view((3,3,7,7), )
+    u = x.unfold(0, 3, 3).unfold(1, 3, 3)
+    print(v.shape)
+    print(u.shape)
 
-    x = list((x, x, x)) # 3, 2, 256, 10, 10  S, B, C, H, W
+    
+    # obj = SliceSEFusionFixedWindow(3, 256)
 
-    obj(x)
+    # x = torch.rand((2, 256, 161, 163)) # B, C, H, W
+    # # x = torch.rand((2, 256, 21, 21))
+
+    # x = list((x, x, x)) # 3, 2, 256, 10, 10  -> S, B, C, H, W
+
+    # obj(x)

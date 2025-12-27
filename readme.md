@@ -15,6 +15,17 @@ All class names start with _"emr"_ to avoid clashes with pytorch class name clas
 - Varying dataset size - H, W will be handled by the transforms module. But num_slices? Currently designing so that the fusion layer will handle that.
 
 
+## ** TODOs ** Fixed Window Fusion:
+Cool. Here is what I am going to do now: 
+1. Resize to 512 x 512 and recreate dataset. 
+2. Rerun simple convolutions early early fusion for n=3 or 5, for 5 epochs
+3. Init MLP per slice weights as (0.33, 0.34, 0.33) and once as (0,1,0) . Rerun simple MLP early fusion. 
+4. Fix windowed MLP early fusion and rerun with inits. 
+5. make windowed MLP early fusion v2, this time with k*k window size, instead of h/k, w/k window size. 
+6. See best MLP model, and implement per feature level seperate MLP. 
+7. Implement convolution instead of MLP (early late convolutional fusion) 
+8. Pixel wise attention.
+
 ## Observations and suggestions 
 
 Model cannot load 59 slices at a time even sequentially because the compute graph will store the gradients for each slice.
