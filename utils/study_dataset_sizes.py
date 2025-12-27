@@ -1,6 +1,7 @@
 import tifffile as tiff
 from pprint import pprint
 import pandas as pd
+import torch
 
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,24 +31,33 @@ def study_size_distribution(file_paths):
     size_x, size_y, size_z = dict(), dict(), dict()
     for folder_path in file_paths:
         for path in os.listdir(folder_path):
-            img_tif = tiff.TiffFile(os.path.join(folder_path, path))
-            for page in img_tif.pages:
-                x, y = page.shape
+            if str(path).endswith(".pt"):
+                img_pt = torch.load(os.path.join(folder_path, path))
+                x, y = img_pt.shape
                 size_x.update({x: size_x.get(x, 0)+1})
                 size_y.update({y: size_y.get(y, 0)+1})
-            size_z.update({len(img_tif.pages): size_z.get(len(img_tif.pages), 0) + 1})
+            else:                    
+                img_tif = tiff.TiffFile(os.path.join(folder_path, path))
+                for page in img_tif.pages:
+                    x, y = page.shape
+                    size_x.update({x: size_x.get(x, 0)+1})
+                    size_y.update({y: size_y.get(y, 0)+1})
+                size_z.update({len(img_tif.pages): size_z.get(len(img_tif.pages), 0) + 1})
     return size_x, size_y, size_z
 
 
 dataset_path = "data/Fluo-N3DH-SIM+"
 
 pprint(study_size_distribution((
-    "data/Fluo-N3DH-SIM+/01", 
-    "data/Fluo-N3DH-SIM+/02", 
-    "data/Fluo-N3DH-SIM+/01_ERR_SEG", 
-    "data/Fluo-N3DH-SIM+/02_ERR_SEG",
-    "data/Fluo-N3DH-CHO/01", 
-    "data/Fluo-N3DH-CHO/02", 
-    "data/Fluo-N3DH-CHO/01_ERR_SEG", 
-    "data/Fluo-N3DH-CHO/02_ERR_SEG",
+    "datasets/Fluo-N3DH-CHO/train/imgs",
+    # "datasets/Fluo-N3DH-CHO/test",
+    # "datasets/Fluo-N3DH-CHO/val"
+    # "data/Fluo-N3DH-SIM+/01", 
+    # "data/Fluo-N3DH-SIM+/02", 
+    # "data/Fluo-N3DH-SIM+/01_ERR_SEG", 
+    # "data/Fluo-N3DH-SIM+/02_ERR_SEG",
+    # "data/Fluo-N3DH-CHO/01", 
+    # "data/Fluo-N3DH-CHO/02", 
+    # "data/Fluo-N3DH-CHO/01_ERR_SEG", 
+    # "data/Fluo-N3DH-CHO/02_ERR_SEG",
     )))
