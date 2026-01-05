@@ -29,7 +29,7 @@ class DataloaderBuilder:
             shuffle=True if mode == "train" else False,
             collate_fn=emrCollate_fn,
             generator=torch.manual_seed(42),
-            num_workers=12,
+            num_workers=4,
             pin_memory=True,
             persistent_workers=True,
             prefetch_factor=2

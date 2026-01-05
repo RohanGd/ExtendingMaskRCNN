@@ -100,9 +100,8 @@ if __name__ == "__main__":
         # mask_path = "data/Fluo-N3DH-SIM+/02_GT/SEG/man_seg050.tif"
         
         # Option 2: Processed .npy/.npz files (active)
-        img_path = "datasets/Fluo-N3DH-SIM+/train/imgs/vol_0019/054.npy"
-        mask_path = "datasets/Fluo-N3DH-SIM+/train/masks/vol_0019/054.npz"
-        
+        img_path = "datasets/Fluo-N3DH-SIM+/train/imgs/0054_053.npy"
+        mask_path = "datasets/Fluo-N3DH-SIM+/train/masks/0054_053.npz"
         img, masks = load_data(img_path, mask_path)
         visualize(img, masks)
     

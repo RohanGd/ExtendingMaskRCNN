@@ -19,6 +19,7 @@ import tifffile as tiff
 import torch
 from emrConfigManager import setup_logger
 import warnings
+import numpy
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -45,7 +46,7 @@ class emrDataset(Dataset):
         self.dataset_name = os.path.normpath(imgs_dir).split(os.sep)[1]
         self.mode = mode
         self.n = n
-        self.H, self.W = torch.load(os.path.join(imgs_dir, img_files[0])).shape # total number of slices per volume /3d image, and H, W
+        self.H, self.W = numpy.load(os.path.join(imgs_dir, img_files[0])).shape # total number of slices per volume /3d image, and H, W
         self.v_size = len([f for f in img_files if f.startswith("0000")])
         num_files = len(img_files)
         # self.v, self.s = len(str(num_files)) + 1, len(str(self.v_size)) + 1
@@ -94,14 +95,18 @@ class emrDataset(Dataset):
                 img_slice = torch.ones(size=(self.H, self.W)) * eps
             else:
                 # get slice at v_idx at slice_idx
-                img_slice = torch.load(f"datasets/{self.dataset_name}/{self.mode}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.pt")
+                img_slice = numpy.load(f"datasets/{self.dataset_name}/{self.mode}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.npy")
+                img_slice = torch.from_numpy(img_slice)
             img_slices.append(img_slice)
         
         img_slices = torch.stack(img_slices)
 
         # mask / target
         slice_idx = idx % self.v_size
-        target = torch.load(f"datasets/{self.dataset_name}/{self.mode}/masks/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.pt")
+        target_npz = numpy.load(f"datasets/{self.dataset_name}/{self.mode}/masks/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.npz")
+        target = dict()
+        for key in target_npz:
+            target[key] = torch.from_numpy(target_npz[key])
 
         return img_slices, target
 

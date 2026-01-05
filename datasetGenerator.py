@@ -62,7 +62,7 @@ def get_file_paths(dataset_path:str, type:str):
         else:
             raise 'Specify type either "imgs" or "masks".'
         paths.extend(fol_paths)
-    return paths
+    return sorted(paths)
 
 
 def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.6, 0.3, 0.1]):
@@ -262,22 +262,14 @@ def save_slice_worker(args):
 def save_as_2d_slice(slice_data, volume_idx, slice_idx, save_dir, type_):
     v, s = 4, 3
     # Create subdirectory per volume
-    vol_dir = f"{save_dir}/{type_}/imgs/vol_{str(volume_idx).zfill(v)}"
-    os.makedirs(vol_dir, exist_ok=True)
-    
-    filepath = f"{vol_dir}/{str(slice_idx).zfill(s)}.npy"
-    # filepath = f"{save_dir}/{type_}/imgs/{str(volume_idx).zfill(v)}_{str(slice_idx).zfill(s)}.npy"
+    filepath = f"{save_dir}/{type_}/imgs/{str(volume_idx).zfill(v)}_{str(slice_idx).zfill(s)}.npy"
     np.save(filepath, slice_data)
 
 
 def save_target(target, volume_idx, slice_idx, type_, save_dir):
     v, s = 4, 3
     # Create subdirectory per volume
-    vol_dir = f"{save_dir}/{type_}/masks/vol_{str(volume_idx).zfill(v)}"
-    os.makedirs(vol_dir, exist_ok=True)
-    
-    filepath = f"{vol_dir}/{str(slice_idx).zfill(s)}.npz"
-    # filepath = f"{save_dir}/{type_}/masks/{str(volume_idx).zfill(v)}_{str(slice_idx).zfill(s)}.npz"
+    filepath = f"{save_dir}/{type_}/masks/{str(volume_idx).zfill(v)}_{str(slice_idx).zfill(s)}.npz"
     target = {
         'boxes': target['boxes'].cpu().numpy(),
         'labels': target['labels'].cpu().numpy(),

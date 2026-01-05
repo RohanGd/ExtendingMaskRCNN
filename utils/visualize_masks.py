@@ -17,9 +17,9 @@ import numpy as np
 
 
 # load configs and setup logger
-config_file = sys.argv[1] if len(sys.argv) > 1 else "config/test_sim+epoch10.ini"
+config_file = sys.argv[1] if len(sys.argv) > 1 else "config/train_sim+_fusion_V1_n03.ini"
 cfg = emrConfigManager(config_file)
-exp_dir, exp_name, log_file = create_experiment_folder(cfg)
+exp_dir, exp_name, log_file = create_experiment_folder(cfg, mode="test")
 logger = setup_logger(log_file)
 logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
 
@@ -117,6 +117,8 @@ with torch.no_grad():
         targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
         
         preds = model(images)
+
+        print(targets)
 
         save_targets_prediction_masks(targets, preds)
         # metrics.update(preds, targets)
