@@ -14,10 +14,11 @@ All class names start with _"emr"_ to avoid clashes with pytorch class name clas
 ## Things to think about:
 - Varying dataset size - H, W will be handled by the transforms module. But num_slices? Currently designing so that the fusion layer will handle that.
 
-
+The following content has not been updated since 06.01.2026
 ## ** TODOs ** Fixed Window Fusion:
 Cool. Here is what I am going to do now: 
-1. Resize to 512 x 512 and recreate dataset. 
+1. Resize to 512 x 512 and recreate dataset. (DONE)
+2. Test loop with only SEG metric from official source: [What is SEG](https://public.celltrackingchallenge.net/documents/SEG.pdf), [Instructions](https://public.celltrackingchallenge.net/documents/Evaluation%20software.pdf) and [CLI tool for SEG](http://public.celltrackingchallenge.net/software/EvaluationSoftware.zip)
 2. Rerun simple convolutions early early fusion for n=3 or 5, for 5 epochs
 3. Init MLP per slice weights as (0.33, 0.34, 0.33) and once as (0,1,0) . Rerun simple MLP early fusion. 
 4. Fix windowed MLP early fusion and rerun with inits. 
@@ -26,6 +27,13 @@ Cool. Here is what I am going to do now:
 7. Implement convolution instead of MLP (early late convolutional fusion) 
 8. Pixel wise attention.
 
+
+## SEG score CLI tool
+Stack the 2d masks volume wise and save as man_seg001.tif file in a folder called 01_GT/SEG
+Similarly stack the per slice preds volume wise and save as mask001.tif file in a folder called 01_RES
+
+
+The following content has not been updated since DECEMBER 2025.
 ## Observations and suggestions 
 
 Model cannot load 59 slices at a time even sequentially because the compute graph will store the gradients for each slice.

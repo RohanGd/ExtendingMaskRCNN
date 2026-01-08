@@ -72,8 +72,10 @@ def create_experiment_folder(cfg, mode):
         with open(cfg.path, "r") as orig:
             f.write(orig.read())
 
-    log_file = os.path.join(exp_dir, "train.log")        
+    log_file = os.path.join(exp_dir, "train.log")  
 
+    os.makedirs(os.path.join(exp_dir, "pred_masks"), exist_ok=True)
+    
     return exp_dir, name, log_file
 
 def setup_logger(log_path):

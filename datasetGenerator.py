@@ -208,14 +208,6 @@ def get_target_from_mask(mask, image_id):
     area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
     iscrowd = torch.zeros((len(labels),), dtype=torch.int64)
 
-    # target = {
-    #     "boxes": boxes.numpy(),
-    #     "labels": labels.numpy(),
-    #     "masks": masks.numpy(),
-    #     "image_id": np.array([image_id]),
-    #     "area": area.numpy(),
-    #     "iscrowd": iscrowd.numpy()
-    # }
     target = {
         "boxes": boxes,
         "labels": labels,

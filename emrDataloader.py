@@ -6,18 +6,19 @@ class DataloaderBuilder:
     def __init__(self, cfg, logger):
         self.cfg = cfg
         self.logger = logger
+        self.imgs_dir, self.masks_dir = None, None
 
     def build(self, mode="train"):
         dataset = self.cfg.get("DATASET", "dataset_name")
-        imgs_dir = "datasets/" + dataset + "/" + mode + "/imgs"
-        masks_dir = "datasets/" + dataset + "/" + mode + "/masks"
+        self.imgs_dir = "datasets/" + dataset + "/" + mode + "/imgs"
+        self.masks_dir = "datasets/" + dataset + "/" + mode + "/masks"
 
         num_slices_per_batch = self.cfg.get_int("MODEL", "num_slices_per_batch")
         batch_size = self.cfg.get_int("LOOP", "batch_size", 1) 
 
         dataset = emrDataset(
-            imgs_dir=imgs_dir,
-            masks_dir=masks_dir,
+            imgs_dir=self.imgs_dir,
+            masks_dir=self.masks_dir,
             n=num_slices_per_batch,
             logger=self.logger,
             mode=mode

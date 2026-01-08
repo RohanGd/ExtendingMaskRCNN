@@ -70,7 +70,7 @@ class ExtendedMaskRCNN(MaskRCNN):
             **kwargs,
         )
 
-        self.squeeze_and_exciteMLP_fusion = SliceSEFusionFixedWindow(
+        self.squeeze_and_exciteMLP_fusion = SliceSEFusion(
             num_slices=num_slices_per_batch, 
             channels=backbone.out_channels
         )
