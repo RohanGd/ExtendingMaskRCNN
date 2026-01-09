@@ -10,7 +10,7 @@ from typing import Optional
 
 
 class ExtendedMaskRCNN(MaskRCNN):
-    def __init__(self, num_slices_per_batch = 3, backbone=None, num_classes=2, min_size=800, max_size=1333, image_mean=None, image_std=None, rpn_anchor_generator=None, rpn_head=None, rpn_pre_nms_top_n_train=2000, rpn_pre_nms_top_n_test=1000, rpn_post_nms_top_n_train=2000, rpn_post_nms_top_n_test=1000, rpn_nms_thresh=0.7, rpn_fg_iou_thresh=0.7, rpn_bg_iou_thresh=0.3, rpn_batch_size_per_image=256, rpn_positive_fraction=0.5, rpn_score_thresh=0, box_roi_pool=None, box_head=None, box_predictor=None, box_score_thresh=0.05, box_nms_thresh=0.5, box_detections_per_img=100, box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5, box_batch_size_per_image=512, box_positive_fraction=0.25, bbox_reg_weights=None, mask_roi_pool=None, mask_head=None, mask_predictor=None, early_mlp_fusion="None", early_mlp_reduction=16, **kwargs):
+    def __init__(self, num_slices_per_batch = 3, backbone=None, num_classes=2, min_size=800, max_size=1333, image_mean=None, image_std=None, rpn_anchor_generator=None, rpn_head=None, rpn_pre_nms_top_n_train=2000, rpn_pre_nms_top_n_test=1000, rpn_post_nms_top_n_train=2000, rpn_post_nms_top_n_test=1000, rpn_nms_thresh=0.7, rpn_fg_iou_thresh=0.7, rpn_bg_iou_thresh=0.3, rpn_batch_size_per_image=256, rpn_positive_fraction=0.5, rpn_score_thresh=0, box_roi_pool=None, box_head=None, box_predictor=None, box_score_thresh=0.05, box_nms_thresh=0.5, box_detections_per_img=100, box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5, box_batch_size_per_image=512, box_positive_fraction=0.25, bbox_reg_weights=None, mask_roi_pool=None, mask_head=None, mask_predictor=None, early_mlp_fusion="None", early_mlp_reduction=16, early_mlp_bias=None, **kwargs):
 
         self.training = True
         self.num_classes = num_classes
@@ -74,7 +74,9 @@ class ExtendedMaskRCNN(MaskRCNN):
         early_mlp_fusion_params = {
             'num_slices': num_slices_per_batch,
             'channels': backbone.out_channels,
-            'reduction': early_mlp_reduction
+            'reduction': early_mlp_reduction,
+            'init_bias': early_mlp_bias
+
         }
 
         if early_mlp_fusion == "None":

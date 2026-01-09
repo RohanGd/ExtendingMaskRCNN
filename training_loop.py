@@ -41,6 +41,7 @@ def main():
     start_epochs = model_init.start_epochs
     num_epochs = cfg.get_int("LOOP", "num_epochs", 1)
     print_rate = cfg.get_int("LOOP", "print_rate", 100)
+    logger.info(model.early_mlp_fusion_module.static_logits.tolist())
 
     # training loop
     logger.info(f"Training model on dataset: {train_dataset.dataset_name} from {start_epochs} to {start_epochs + num_epochs} epochs.")
@@ -69,6 +70,7 @@ def main():
                 print_rate_time = datetime.now()
                 average_batch_time = (print_rate_time - batch_start_time).total_seconds() / print_rate
                 logger.info(f"Loss at epoch {epoch} at iteration {iterations}: {loss:.4f}, Avg batch time: {average_batch_time:.4f} seconds")
+                logger.info(model.early_mlp_fusion_module.static_logits.tolist())
                 batch_start_time = datetime.now()
                 moving_average_batch_time += average_batch_time
         

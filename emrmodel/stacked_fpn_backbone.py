@@ -10,10 +10,12 @@ from torch import nn
 
 
 class Stacked_Resnet50FPN_Backbone(BackboneWithFPN):
+    """
+    Each slice is passed through a resnet fpn backbone with in_channels=1, the resulting fpn features for eac slice are stacked.
+    """
     def __init__(self, num_slices):
         self.num_slices = num_slices
 
-        # Proxy backbone for accessing attributes like out_channels in_channels etc.
         norm_layer = misc_nn_ops.FrozenBatchNorm2d
         trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
         backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)

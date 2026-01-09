@@ -1,11 +1,12 @@
-import torch
+import torch, numpy
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class IdentityFusion(nn.Module):
-    def __init__(self, num_slices: None, channels: None, reduction: int = 16):
+    def __init__(self, num_slices: None, channels: None, reduction: int = 16, init_bias=None):
         super().__init__()
+        self.static_logits = torch.zeros((0,))
         return
     def forward(self, feats_per_slice):
         return feats_per_slice
@@ -22,7 +23,7 @@ class SliceSEFusion(nn.Module):
     Output:
         fused: tensor of shape [B, C, H, W]
     """
-    def __init__(self, num_slices: int, channels: int, reduction: int = 16):
+    def __init__(self, num_slices: int, channels: int, reduction: int = 16, init_bias=None):
         super().__init__()
         self.num_slices = num_slices
         self.channels = channels
@@ -34,7 +35,17 @@ class SliceSEFusion(nn.Module):
         self.fc2 = nn.Linear(hidden, 1)
 
         # Optional static bias per slice (helps encode "center slice is usually best")
-        self.static_logits = nn.Parameter(torch.zeros(num_slices))
+        if init_bias == None or init_bias == "zero":
+            init_bias = torch.zeros(num_slices)
+        elif init_bias == "only_center":
+            init_bias = [0.0 for _ in range(num_slices)]
+            init_bias[num_slices//2] = 1
+            init_bias = torch.tensor(init_bias)
+        elif init_bias == "gaussian":
+            x = torch.linspace(-num_slices, num_slices, num_slices)
+            init_bias = torch.exp(-x**2 / (2*2*num_slices))  # sigma = 5
+            init_bias /= init_bias.sum()
+        self.static_logits = nn.Parameter(init_bias)
 
     def forward(self, feats_per_slice):
         """
@@ -77,7 +88,7 @@ class SliceSEFusionFixedWindow(nn.Module):
     Output:
         fused: tensor of shape [B, C, H, W]
     """
-    def __init__(self, num_slices: int, channels: int, reduction: int = 16, window_size=7):
+    def __init__(self, num_slices: int, channels: int, reduction: int = 16, window_size=7, init_bias=None):
         super().__init__()
         self.num_slices = num_slices
         self.channels = channels
