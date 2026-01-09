@@ -27,6 +27,8 @@ class ModelBuilder:
         rpn_bg_iou_thresh = self.cfg.get_float("MODEL", "rpn_bg_iou_thresh", 0.3)
         box_fg_iou_thresh = self.cfg.get_float("MODEL", "box_fg_iou_thresh", 0.5)
         box_bg_iou_thresh = self.cfg.get_float("MODEL", "box_bg_iou_thresh", 0.5)
+        early_mlp_fusion = self.cfg.get("MODEL", "early_mlp_fusion", "None")
+        early_mlp_reduction = self.cfg.get_int("MODEL", "early_mlp_reduction", 16)
 
         model_params = {
             'num_slices_per_batch': num_slices_per_batch,
@@ -45,7 +47,9 @@ class ModelBuilder:
             'rpn_bg_iou_thresh': rpn_bg_iou_thresh,
             'box_fg_iou_thresh': box_fg_iou_thresh,
             'box_bg_iou_thresh': box_bg_iou_thresh,
-            'rpn_positive_fraction': rpn_positive_fraction
+            'rpn_positive_fraction': rpn_positive_fraction,
+            'early_mlp_fusion': early_mlp_fusion,
+            'early_mlp_reduction': early_mlp_reduction
         }
         
         model = ExtendedMaskRCNN(**model_params)

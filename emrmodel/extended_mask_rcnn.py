@@ -1,6 +1,6 @@
 from emrmodel.mask_rcnn import MaskRCNN
 from emrmodel.stacked_fpn_backbone import Stacked_Resnet50FPN_Backbone
-from emrmodel.fusion_mlp_example import SliceSEFusion, SliceSEFusionFixedWindow
+from emrmodel.early_mlp_fusion import SliceSEFusion, SliceSEFusionFixedWindow, IdentityFusion
 from torchvision.models.detection.backbone_utils import BackboneWithFPN, _validate_trainable_layers, _resnet_fpn_extractor
 from torchvision.models.resnet import resnet50, ResNet50_Weights
 import torch
@@ -10,21 +10,22 @@ from typing import Optional
 
 
 class ExtendedMaskRCNN(MaskRCNN):
-    def __init__(self, num_slices_per_batch = 3, backbone=None, num_classes=2, min_size=800, max_size=1333, image_mean=None, image_std=None, rpn_anchor_generator=None, rpn_head=None, rpn_pre_nms_top_n_train=2000, rpn_pre_nms_top_n_test=1000, rpn_post_nms_top_n_train=2000, rpn_post_nms_top_n_test=1000, rpn_nms_thresh=0.7, rpn_fg_iou_thresh=0.7, rpn_bg_iou_thresh=0.3, rpn_batch_size_per_image=256, rpn_positive_fraction=0.5, rpn_score_thresh=0, box_roi_pool=None, box_head=None, box_predictor=None, box_score_thresh=0.05, box_nms_thresh=0.5, box_detections_per_img=100, box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5, box_batch_size_per_image=512, box_positive_fraction=0.25, bbox_reg_weights=None, mask_roi_pool=None, mask_head=None, mask_predictor=None, **kwargs):
+    def __init__(self, num_slices_per_batch = 3, backbone=None, num_classes=2, min_size=800, max_size=1333, image_mean=None, image_std=None, rpn_anchor_generator=None, rpn_head=None, rpn_pre_nms_top_n_train=2000, rpn_pre_nms_top_n_test=1000, rpn_post_nms_top_n_train=2000, rpn_post_nms_top_n_test=1000, rpn_nms_thresh=0.7, rpn_fg_iou_thresh=0.7, rpn_bg_iou_thresh=0.3, rpn_batch_size_per_image=256, rpn_positive_fraction=0.5, rpn_score_thresh=0, box_roi_pool=None, box_head=None, box_predictor=None, box_score_thresh=0.05, box_nms_thresh=0.5, box_detections_per_img=100, box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5, box_batch_size_per_image=512, box_positive_fraction=0.25, bbox_reg_weights=None, mask_roi_pool=None, mask_head=None, mask_predictor=None, early_mlp_fusion="None", early_mlp_reduction=16, **kwargs):
 
         self.training = True
         self.num_classes = num_classes
 
-        # if backbone == None: # see maskrcnn_resnet50_fpn in torchvision/models/detection/mask_rcnn.py
-        #     norm_layer = misc_nn_ops.FrozenBatchNorm2d
-        #     trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
-        #     backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
-        #     backbone = _resnet_fpn_extractor(backbone, trainable_backbone_layers)
-        #     in_channels = num_slices_per_batch # number of input slices
-        #     backbone.body.conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)   
-
-        if backbone == None:
-            backbone = Stacked_Resnet50FPN_Backbone(num_slices=num_slices_per_batch)     
+        if early_mlp_fusion == "None":
+            if backbone == None: # see maskrcnn_resnet50_fpn in torchvision/models/detection/mask_rcnn.py
+                norm_layer = misc_nn_ops.FrozenBatchNorm2d
+                trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
+                backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
+                backbone = _resnet_fpn_extractor(backbone, trainable_backbone_layers)
+                in_channels = num_slices_per_batch # number of input slices
+                backbone.body.conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)   
+        else:
+            if backbone == None:
+                backbone = Stacked_Resnet50FPN_Backbone(num_slices=num_slices_per_batch)     
        
         if image_mean == None:
             image_mean = [0 for _ in range(num_slices_per_batch)]
@@ -70,9 +71,17 @@ class ExtendedMaskRCNN(MaskRCNN):
             **kwargs,
         )
 
-        self.squeeze_and_exciteMLP_fusion = SliceSEFusion(
-            num_slices=num_slices_per_batch, 
-            channels=backbone.out_channels
-        )
+        early_mlp_fusion_params = {
+            'num_slices': num_slices_per_batch,
+            'channels': backbone.out_channels,
+            'reduction': early_mlp_reduction
+        }
+
+        if early_mlp_fusion == "None":
+            self.early_mlp_fusion_module = IdentityFusion(**early_mlp_fusion_params)
+        elif early_mlp_fusion == "Global":
+            self.early_mlp_fusion_module = SliceSEFusion(**early_mlp_fusion_params)
+        elif early_mlp_fusion == "Windowed":
+            self.early_mlp_fusion_module = SliceSEFusionFixedWindow(**early_mlp_fusion_params)
 
         return

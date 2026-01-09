@@ -2,6 +2,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+class IdentityFusion(nn.Module):
+    def __init__(self, num_slices: None, channels: None, reduction: int = 16):
+        super().__init__()
+        return
+    def forward(self, feats_per_slice):
+        return feats_per_slice
+
+
 class SliceSEFusion(nn.Module):
     """
     Squeeze-and-Excitation style fusion over slices.

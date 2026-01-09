@@ -11,7 +11,6 @@ from torch import nn, Tensor
 
 from torchvision.utils import _log_api_usage_once
 
-from emrmodel.fusion_mlp_example import SliceSEFusion
 
 
 class GeneralizedRCNN(nn.Module):
@@ -105,7 +104,7 @@ class GeneralizedRCNN(nn.Module):
         features = OrderedDict()
         for key in per_slice_features.keys():
             scale_feature = per_slice_features[key] # eg.  list[torch.Size([B, 256, 161, 163], ...)]
-            squeeze_n_excite_feature = self.squeeze_and_exciteMLP_fusion(scale_feature) # torch.Size([B, 256, 161, 163], ...)
+            squeeze_n_excite_feature = self.early_mlp_fusion_module(scale_feature) # torch.Size([B, 256, 161, 163], ...)
             features.update({ key: squeeze_n_excite_feature })
         
         if isinstance(features, torch.Tensor):

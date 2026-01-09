@@ -18,8 +18,8 @@ The following content has not been updated since 06.01.2026
 ## ** TODOs ** Fixed Window Fusion:
 Cool. Here is what I am going to do now: 
 1. Resize to 512 x 512 and recreate dataset. (DONE)
-2. Test loop with only SEG metric from official source: [What is SEG](https://public.celltrackingchallenge.net/documents/SEG.pdf), [Instructions](https://public.celltrackingchallenge.net/documents/Evaluation%20software.pdf) and [CLI tool for SEG](http://public.celltrackingchallenge.net/software/EvaluationSoftware.zip)
-2. Rerun simple convolutions early early fusion for n=3 or 5, for 5 epochs
+2. Test loop with only SEG metric from official source: [What is SEG](https://public.celltrackingchallenge.net/documents/SEG.pdf), [Instructions](https://public.celltrackingchallenge.net/documents/Evaluation%20software.pdf) and [CLI tool for SEG](http://public.celltrackingchallenge.net/software/EvaluationSoftware.zip) (DONE)
+2. Rerun simple convolutions early early fusion for n=3 or 5, for 5 epochs for new 512 x 512 images
 3. Init MLP per slice weights as (0.33, 0.34, 0.33) and once as (0,1,0) . Rerun simple MLP early fusion. 
 4. Fix windowed MLP early fusion and rerun with inits. 
 5. make windowed MLP early fusion v2, this time with k*k window size, instead of h/k, w/k window size. 
