@@ -20,9 +20,14 @@ Cool. Here is what I am going to do now:
 1. Resize to 512 x 512 and recreate dataset. (DONE)
 2. Test loop with only SEG metric from official source: [What is SEG](https://public.celltrackingchallenge.net/documents/SEG.pdf), [Instructions](https://public.celltrackingchallenge.net/documents/Evaluation%20software.pdf) and [CLI tool for SEG](http://public.celltrackingchallenge.net/software/EvaluationSoftware.zip) (DONE)
 2. Rerun simple convolutions early early fusion for n=3 or 5, for 5 epochs for new 512 x 512 images
-3. Init MLP per slice weights as (0.33, 0.34, 0.33) and once as (0,1,0) . Rerun simple MLP early fusion. 
-4. Fix windowed MLP early fusion and rerun with inits. 
-5. make windowed MLP early fusion v2, this time with k*k window size, instead of h/k, w/k window size. 
+3. Init MLP per slice weights as (0.33, 0.34, 0.33) and once as (0,1,0) . (DONE)
+4. Fix windowed MLP early fusion. (DONE)
+5. make windowed MLP early fusion v2, this time with k*k window size, instead of h/k, w/k window size. (FIXED)
+6. Rerun
+    - Simple Bacbone no MLP
+    - MLP simple slice fusion (zero init_bias)
+    - MLP windowed slice fusion (zero init_bias)
+    - Compare best MLP model and retrain with init_bias = gaussian or only_center
 6. See best MLP model, and implement per feature level seperate MLP. 
 7. Implement convolution instead of MLP (early late convolutional fusion) 
 8. Pixel wise attention.

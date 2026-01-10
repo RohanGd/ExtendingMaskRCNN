@@ -6,6 +6,7 @@ from torchvision.models.resnet import resnet50, ResNet50_Weights
 import torch
 from torchvision.ops import misc as misc_nn_ops
 from typing import Optional
+import torch.nn as nn
 
 
 
@@ -86,4 +87,17 @@ class ExtendedMaskRCNN(MaskRCNN):
         elif early_mlp_fusion == "Windowed":
             self.early_mlp_fusion_module = SliceSEFusionFixedWindow(**early_mlp_fusion_params)
 
+
+        self._init_weights()
         return
+    
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight, mode="fan_out")
+                if m.bias is not None:
+                    torch.nn.init.zeros_(m.bias)
+
+            elif isinstance(m, nn.Linear):
+                torch.nn.init.xavier_uniform_(m.weight)
+                torch.nn.init.zeros_(m.bias)

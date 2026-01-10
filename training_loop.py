@@ -70,7 +70,7 @@ def main():
                 print_rate_time = datetime.now()
                 average_batch_time = (print_rate_time - batch_start_time).total_seconds() / print_rate
                 logger.info(f"Loss at epoch {epoch} at iteration {iterations}: {loss:.4f}, Avg batch time: {average_batch_time:.4f} seconds")
-                logger.info(model.early_mlp_fusion_module.static_logits.tolist())
+                logger.info(f"per_slice_bias: {model.early_mlp_fusion_module.static_logits.tolist()}")
                 batch_start_time = datetime.now()
                 moving_average_batch_time += average_batch_time
         
