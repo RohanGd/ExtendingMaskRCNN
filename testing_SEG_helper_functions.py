@@ -11,6 +11,7 @@ def save_preds(preds, save_dir):
     num_files = len(os.listdir(save_dir))
     for i, pred in enumerate(preds): # Batch size
         pred_mask = pred["masks"]
+        pred_mask = (pred_mask > 0.5).bool().to(torch.int32)
         # this is of shape: [num_instances, 1, H, W]
         save_name = save_dir + f"/{num_files + i + 1}.tif"
         # now assign a grey value to each instance
