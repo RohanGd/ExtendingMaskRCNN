@@ -9,8 +9,8 @@ from datetime import datetime
 
 
 def main():
-    # dataset_path = "data/Fluo-N3DH-CHO"
-    dataset_path = "data/Fluo-N3DH-SIM+"
+    dataset_path = "data/Fluo-N3DH-CHO"
+    # dataset_path = "data/Fluo-N3DH-SIM+"
 
     rusure = input(f"WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\nFor dataset: {dataset_path}\n Enter Y/N:    ")
     if rusure != "Y":
@@ -65,7 +65,7 @@ def get_file_paths(dataset_path:str, type:str):
     return sorted(paths)
 
 
-def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.6, 0.3, 0.1]):
+def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.15, 0.15]):
     """Shuffles the list of img_paths and mask_paths and then splits the lists into train, test and val in the given split ratio.
 
     Args:
