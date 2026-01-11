@@ -88,16 +88,22 @@ class ExtendedMaskRCNN(MaskRCNN):
             self.early_mlp_fusion_module = SliceSEFusionFixedWindow(**early_mlp_fusion_params)
 
 
-        self._init_weights()
+        self._init_weights_non_backbone()
         return
     
-    def _init_weights(self):
-        for m in self.modules():
+
+    def _init_weights_non_backbone(self):
+        for name, m in self.named_modules():
+            if name.startswith("backbone"):
+                continue
+
             if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight, mode="fan_out")
+                nn.init.kaiming_normal_(m.weight, mode="fan_out")
                 if m.bias is not None:
-                    torch.nn.init.zeros_(m.bias)
+                    nn.init.zeros_(m.bias)
 
             elif isinstance(m, nn.Linear):
-                torch.nn.init.xavier_uniform_(m.weight)
-                torch.nn.init.zeros_(m.bias)
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+
+
