@@ -2,12 +2,13 @@
 Training loop
 python training_loop.py configfile
 '''
-import sys
+import sys, os, subprocess
 import torch
 from datetime import datetime
 from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
+from testing_SEG_helper_functions import save_preds, make_files_for_SEG
 
 from multiprocessing import freeze_support
 
@@ -47,6 +48,8 @@ def main():
     logger.info(f"Training model on dataset: {train_dataset.dataset_name} from {start_epochs} to {start_epochs + num_epochs} epochs.")
     moving_average_batch_time = 0
     for epoch in range(start_epochs, start_epochs + num_epochs):
+        # training
+        model.train()
         start_epoch_time = datetime.now()
         epoch_loss = 0
         iterations = 0
@@ -80,7 +83,34 @@ def main():
         torch.save(model.state_dict(), f=ckpt_path)
         logger.info(f"Model Saved at location: {ckpt_path}")
 
+        # validation
+        model.eval()
+        val_dataset, val_dataloader = loader_builder.build(mode='val')
+        pred_masks_dir = os.path.join(exp_dir, "pred_masks")
 
+        # erase contents of exp_dir/pred_masks but keep the empty folder
+        if os.path.exists(pred_masks_dir):
+            subprocess.run(["rm", "-rf", f"{pred_masks_dir}/*"])
+        else:
+            os.makedirs(pred_masks_dir)
+
+        # then remove 01 rm -rf exp_dir/01
+        subprocess.run(["rm", "-rf", f"{exp_dir}/01"])
+
+        with torch.no_grad():
+            for images, targets, in val_dataloader:
+                images = images.to(device)
+                targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
+                preds = model(images)
+                save_preds(preds, pred_masks_dir)
+        
+        make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["val"], pred_masks_dir=pred_masks_dir)
+
+        SEG_result = subprocess.run(["./SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","3"], stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True)
+        logger.info(f"VALIDATION SEG SCORE: {SEG_result.stdout.strip()}")
+        
 if __name__ == "__main__":
     freeze_support()
     main()
