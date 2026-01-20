@@ -17,7 +17,7 @@ class Stacked_Resnet50FPN_Backbone(BackboneWithFPN):
         self.num_slices = num_slices
 
         norm_layer = misc_nn_ops.FrozenBatchNorm2d
-        trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
+        trainable_backbone_layers = _validate_trainable_layers(True, 5, max_value=5, default_value=3) # trainable backbone layers is passed as 5
         backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
         fpn_maker_tuple = _resnet_fpn_tuple_maker(backbone=backbone, trainable_layers=trainable_backbone_layers, norm_layer=norm_layer)
         super().__init__(fpn_maker_tuple[0], fpn_maker_tuple[1], fpn_maker_tuple[2], fpn_maker_tuple[3])

@@ -19,7 +19,7 @@ class ExtendedMaskRCNN(MaskRCNN):
         if early_mlp_fusion == "None":
             if backbone == None: # see maskrcnn_resnet50_fpn in torchvision/models/detection/mask_rcnn.py
                 norm_layer = misc_nn_ops.FrozenBatchNorm2d
-                trainable_backbone_layers = _validate_trainable_layers(True, None, max_value=5, default_value=3) # trainable backbone layers is passed as None
+                trainable_backbone_layers = _validate_trainable_layers(True, 5, max_value=5, default_value=3) # trainable backbone layers is passed as 5
                 backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
                 backbone = _resnet_fpn_extractor(backbone, trainable_backbone_layers)
                 in_channels = num_slices_per_batch # number of input slices
