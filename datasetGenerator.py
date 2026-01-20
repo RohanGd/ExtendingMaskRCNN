@@ -4,8 +4,7 @@ import os
 from random import shuffle
 import tifffile as tiff
 import torch.nn.functional as F
-from datetime import datetime
-
+from tqdm import tqdm
 
 
 def main():
@@ -24,11 +23,11 @@ def main():
     train_paths, test_paths, val_paths = train_test_val_split_on_paths(img_paths, mask_paths)
 
     # val_paths = val_paths[:2]
-    print("-"*50,"\nCREATING VAL DATASET")
+    print("-"*50,"\nCREATING VAL DATASET, number of volumes: ", len(val_paths))
     create_dataset(val_paths, save_dir, type_="val")
-    print("-"*50,"\nCREATING TEST DATASET")
+    print("-"*50,"\nCREATING TEST DATASET, number of volumes: " ,len(test_paths))
     create_dataset(test_paths, save_dir, type_="test")
-    print("-"*50,"\nCREATING TRAIN DATASET")
+    print("-"*50,"\nCREATING TRAIN DATASET, number of volumes: " ,len(train_paths))
     create_dataset(train_paths, save_dir, type_="train")
 
 
@@ -58,7 +57,8 @@ def get_file_paths(dataset_path:str, type:str):
         if type == "imgs":
             fol_paths = [os.path.join(dataset_path, fol_name, x) for x in os.listdir(os.path.join(dataset_path, fol_name))]
         elif type == "masks":
-            fol_paths =[os.path.join(dataset_path, fol_name+"_ERR_SEG", x) for x in os.listdir(os.path.join(dataset_path,  fol_name+"_ERR_SEG"))]
+            man_seg_dirpath = "_GT/SEG" if "SIM+" in dataset_path else "_ST/SEG"
+            fol_paths =[os.path.join(dataset_path, fol_name+man_seg_dirpath, x) for x in os.listdir(os.path.join(dataset_path,  fol_name+man_seg_dirpath))]
         else:
             raise 'Specify type either "imgs" or "masks".'
         paths.extend(fol_paths)
@@ -71,7 +71,7 @@ def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.
     Args:
         imgs_paths (str)
         masks_paths (str)
-        split (list, optional): train, test, val splits. Defaults to [0.6, 0.3, 0.1].
+        split (list, optional): train, test, val splits. Defaults to [0.75, 0.15, 0.15].
 
     Returns:
         train_paths (list): list of tuples of img_path and corresponding mask_path
@@ -102,28 +102,15 @@ def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.
 
 
 def create_dataset(file_paths:str, save_dir:str, type_:str):
-    print(os.cpu_count())
-    epoch0 = datetime.now()
-    for idx, path_pair in enumerate(file_paths):
-        run1_start = datetime.now()
+    for idx, path_pair in enumerate(tqdm(file_paths)):
         make(path_pair, idx, save_dir, type_)
-        run1_time = datetime.now() - run1_start
-        total_time_elapsed = datetime.now() - epoch0
-        remaining_items = len(file_paths) - (idx + 1)
-        avg_time_per_item = total_time_elapsed / (idx + 1)
-        estimated_time_remaining = avg_time_per_item * remaining_items
-        print(f"PROGRESS: {idx+1} / {len(file_paths)} | ETA: {estimated_time_remaining} | TFO: {run1_time}")
 
 
 def resize_with_padding(img, target_size=512, is_mask=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     num_slices, height, width = img.shape
 
-    if isinstance(img, np.ndarray):
-        if is_mask:
-            img = torch.from_numpy(img).long().to(device)  # Keep as integer
-        else:
-            img = torch.from_numpy(img).float().to(device)
+    img = torch.from_numpy(img).float().to(device)
     
     # If already target size, return as is
     if height == target_size and width == target_size:
@@ -162,9 +149,9 @@ def resize_with_padding(img, target_size=512, is_mask=False):
     # Remove channel dimension and return
     img_padded = img_padded.squeeze(1)
     
-    # Convert back to long if mask
+    # Convert back to int32 if mask
     if is_mask:
-        img_padded = img_padded.long()
+        img_padded = img_padded.int()
     
     del img, img_reshaped, img_resized
     return img_padded.cpu()
@@ -221,26 +208,23 @@ def get_target_from_mask(mask, image_id):
     return target
     
 
-def make(path_pair, idx, save_dir, type_):
+def make(path_pair, volume_idx, save_dir, type_):
     img_path, mask_path = path_pair
     _img = tiff.imread(img_path)
     _mask = tiff.imread(mask_path)
     assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_path} and {mask_path}"
     _img = resize_with_padding(_img, is_mask=False)
     _mask = resize_with_padding(_mask, is_mask=True)
+    assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_path} and {mask_path}"
     volume_depth = _img.shape[0]
 
     # bottleneck here, in saving individual slices
-    _img_cpu = _img.cpu().numpy()
-    _mask_cpu = _mask
        
-    for slice_idx in range(_img_cpu.shape[0]):
-        # if slice_idx % 20 == 0:
-        #     time.sleep(2)
-        img_slice = _img_cpu[slice_idx].copy()
-        mask_slice = _mask_cpu[slice_idx]
+    for slice_idx in range(_img.shape[0]):
+        img_slice = _img[slice_idx].cpu().numpy().copy()
+        mask_slice = _mask[slice_idx]
         
-        save_slice_worker((img_slice, mask_slice, idx, slice_idx, save_dir, type_, volume_depth))
+        save_slice_worker((img_slice, mask_slice, volume_idx, slice_idx, save_dir, type_, volume_depth))
 
 
 def save_slice_worker(args):

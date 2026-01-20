@@ -10,7 +10,8 @@ from emrConfigManager import emrConfigManager, create_experiment_folder, setup_l
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
 from multiprocessing import freeze_support
-from testing_SEG_helper_functions import save_preds, make_files_for_SEG
+from SEG_helper_functions import make_files_for_SEG, save_preds
+from tqdm import tqdm
 
 def main():
     torch.manual_seed(42) 
@@ -43,9 +44,7 @@ def main():
     start_time = datetime.now()
     metrics = emrMetrics()
     with torch.no_grad():
-        i = 0
-        batch_start_time = datetime.now()
-        for images, targets in test_dataloader:
+        for images, targets in tqdm(test_dataloader):
             images = images.to(device)
             targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
             
@@ -53,13 +52,8 @@ def main():
             # save the pred masks in exp_dir/pred_masks
             save_preds(preds, pred_masks_dir)
 
-            if only_SEG_score == False: # this is very slow, avoid if you only need SEG score
+            if only_SEG_score == False: # this is slow, avoid if you only need SEG score
                 metrics.update(preds, targets)
-
-            i += 1
-            if i % print_rate == 0:
-                logger.info(f"Progress {i} / {len(test_dataloader)} - Time taken = {datetime.now() - batch_start_time}")
-                batch_start_time = datetime.now()
 
     make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["test"], pred_masks_dir=pred_masks_dir)
     
@@ -70,7 +64,7 @@ def main():
     end_time = datetime.now()
     logger.info(f"TIME TAKEN: {end_time - start_time}")
 
-    SEG_result = subprocess.run(["./SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","3"], stdout=subprocess.PIPE,
+    SEG_result = subprocess.run(["./SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True)
     logger.info(f"SEG score CLI Tool: {SEG_result.stdout.strip()}")

@@ -156,22 +156,3 @@ class SliceSEFusionFixedWindow(SliceSEFusion):
         fused = fused[:, :, :H, :W] # removeing padding, was only added to bottom and right
 
         return fused
-
-if __name__ == "__main__":
-
-#     # x = torch.rand((21, 21))
-#     # print(x.shape)
-#     # v = x.view((3,3,7,7), )
-#     # u = x.unfold(0, 7, 7).unfold(1, 7, 7)
-#     # print(v.shape)
-#     # print(u.shape)
-
-    
-    obj = SliceSEFusionFixedWindow(3, 256)
-
-    x = torch.rand((2, 256, 81, 82)) # B, C, H, W
-    x = torch.rand((2, 256, 21, 21))
-
-    x = list((x, torch.rand_like(x),torch.rand_like(x))) # 3, 2, 256, 10, 10  -> S, B, C, H, W
-
-    print(obj(x).shape)

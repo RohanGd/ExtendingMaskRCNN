@@ -8,7 +8,7 @@ from datetime import datetime
 from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
-from testing_SEG_helper_functions import save_preds, make_files_for_SEG
+from SEG_helper_functions import save_preds, make_files_for_SEG
 
 from multiprocessing import freeze_support
 
@@ -89,18 +89,14 @@ def main():
         pred_masks_dir = os.path.join(exp_dir, "pred_masks")
 
         # erase contents of exp_dir/pred_masks but keep the empty folder
-        if os.path.exists(pred_masks_dir):
-            subprocess.run(["rm", "-rf", f"{pred_masks_dir}/*"])
-        else:
-            os.makedirs(pred_masks_dir)
+        subprocess.run([f"rm -rf {pred_masks_dir}/*"], shell=True)
 
         # then remove 01 rm -rf exp_dir/01
-        subprocess.run(["rm", "-rf", f"{exp_dir}/01"])
+        subprocess.run(f"rm -rf {exp_dir}/01", shell=True)
 
         with torch.no_grad():
             for images, targets, in val_dataloader:
                 images = images.to(device)
-                targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
                 preds = model(images)
                 save_preds(preds, pred_masks_dir)
         
