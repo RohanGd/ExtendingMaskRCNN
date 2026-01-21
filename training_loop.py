@@ -9,7 +9,7 @@ from emrConfigManager import emrConfigManager, create_experiment_folder, setup_l
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
 from SEG_helper_functions import save_preds, make_files_for_SEG
-
+from torch.utils.tensorboard import SummaryWriter
 from multiprocessing import freeze_support
 
 def main():
@@ -39,22 +39,22 @@ def main():
     model.train()
 
     # looping params
-    start_epochs = model_init.start_epochs
     num_epochs = cfg.get_int("LOOP", "num_epochs", 1)
     print_rate = cfg.get_int("LOOP", "print_rate", 100)
-    logger.info(model.early_mlp_fusion_module.static_logits.tolist())
 
+    writer = SummaryWriter(log_dir=exp_dir)
+    total_params = sum([p.numel() for p in model.parameters()])
+    print(f"Total model params: {total_params}")
     # training loop
-    logger.info(f"Training model on dataset: {train_dataset.dataset_name} from {start_epochs} to {start_epochs + num_epochs} epochs.")
-    moving_average_batch_time = 0
-    for epoch in range(start_epochs, start_epochs + num_epochs):
+    global_iterations = 0
+    logger.info(f"Training model on dataset: {train_dataset.dataset_name} for {num_epochs} epochs.")
+    for epoch in range(num_epochs):
         # training
         model.train()
         start_epoch_time = datetime.now()
         epoch_loss = 0
-        iterations = 0
+        print_rate_loss = 0
         for images, targets in train_dataloader:
-            batch_start_time = datetime.now()
             images = images.to(device)
             targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
             loss_dict = model(images, targets) # {'loss_classifier': tensor, 'loss_box_reg': tensor, 'loss_rpn_box_reg': tensor}
@@ -65,21 +65,25 @@ def main():
             optimizer.step()
 
             epoch_loss += loss.item()
+            print_rate_loss += loss.item()
 
-            if iterations == 0:
+            if global_iterations == 0:
                 print(images.shape)
-            iterations += 1
-            if iterations % print_rate == 0:
-                print_rate_time = datetime.now()
-                average_batch_time = (print_rate_time - batch_start_time).total_seconds() / print_rate
-                logger.info(f"Loss at epoch {epoch} at iteration {iterations}: {loss:.4f}, Avg batch time: {average_batch_time:.4f} seconds")
-                logger.info(f"per_slice_bias: {model.early_mlp_fusion_module.static_logits.tolist()}")
-                batch_start_time = datetime.now()
-                moving_average_batch_time += average_batch_time
+            global_iterations += 1
+            if global_iterations % print_rate == 0:
+                print_rate_loss = print_rate_loss / print_rate
+                logger.info(f"Loss at epoch {epoch} at iteration {global_iterations%len(train_dataloader)}: {print_rate_loss:.4f}")
+                print_rate_loss = 0
+                # logger.info(f"per_slice_bias: {model.early_mlp_fusion_module.static_logits.tolist()}")
+            for loss_name, loss_value in loss_dict.items():
+                writer.add_scalar(f'Loss/{loss_name}', loss_value.item(), global_iterations)
+            writer.add_scalar("Total Loss", loss, global_iterations)
+        
+        writer.add_scalar("Epoch Loss", epoch_loss/len(train_dataloader), epoch)
         
         end_epoch_time = datetime.now()
-        logger.info(f"Epoch {epoch+1}/{start_epochs + num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}, Moving Avg Batch Time: {moving_average_batch_time / (iterations // print_rate + 1):.4f} seconds")
-        ckpt_path = f"{exp_dir}/({epoch+1}_of_{start_epochs+num_epochs}).pt"
+        logger.info(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}")
+        ckpt_path = f"{exp_dir}/({epoch+1}_of_{num_epochs}).pt"
         torch.save(model.state_dict(), f=ckpt_path)
         logger.info(f"Model Saved at location: {ckpt_path}")
 
@@ -102,10 +106,11 @@ def main():
         
         make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["val"], pred_masks_dir=pred_masks_dir)
 
-        SEG_result = subprocess.run(["./SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","3"], stdout=subprocess.PIPE,
+        SEG_result = subprocess.run(["./SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True)
         logger.info(f"VALIDATION SEG SCORE: {SEG_result.stdout.strip()}")
+        writer.add_scalar("Val_SEG", SEG_result, epoch)
         
 if __name__ == "__main__":
     freeze_support()

@@ -1,11 +1,10 @@
 from emrmodel.mask_rcnn import MaskRCNN
 from emrmodel.stacked_fpn_backbone import Stacked_Resnet50FPN_Backbone
-from emrmodel.early_mlp_fusion import SliceSEFusion, SliceSEFusionFixedWindow, IdentityFusion
-from torchvision.models.detection.backbone_utils import BackboneWithFPN, _validate_trainable_layers, _resnet_fpn_extractor
+from emrmodel.early_mlp_fusion import SliceSEFusion, SliceSEFusionFixedWindow, IdentityFusion, SlicePixelAttention, SliceSEFusionPerFPN, SlicePixelAttentionPerFPN
+from torchvision.models.detection.backbone_utils import _validate_trainable_layers, _resnet_fpn_extractor
 from torchvision.models.resnet import resnet50, ResNet50_Weights
 import torch
 from torchvision.ops import misc as misc_nn_ops
-from typing import Optional
 import torch.nn as nn
 
 
@@ -84,10 +83,16 @@ class ExtendedMaskRCNN(MaskRCNN):
             self.early_mlp_fusion_module = IdentityFusion(**early_mlp_fusion_params)
         elif early_mlp_fusion == "Global":
             self.early_mlp_fusion_module = SliceSEFusion(**early_mlp_fusion_params)
+        elif early_mlp_fusion == "GlobalPerFPN":
+            self.early_mlp_fusion_module = SliceSEFusionPerFPN(**early_mlp_fusion_params)
         elif early_mlp_fusion == "Windowed":
             self.early_mlp_fusion_module = SliceSEFusionFixedWindow(**early_mlp_fusion_params)
+        elif early_mlp_fusion == "Pixel":
+            self.early_mlp_fusion_module = SlicePixelAttention(**early_mlp_fusion_params)
+        elif early_mlp_fusion == "PixelPerFPN":
+            self.early_mlp_fusion_module = SlicePixelAttentionPerFPN(**early_mlp_fusion_params)
 
-
+        print(f"Number of params in early_mlp_layer: {sum([p.numel() for p in self.early_mlp_fusion_module.parameters()])}")
         self._init_weights_non_backbone()
         return
     

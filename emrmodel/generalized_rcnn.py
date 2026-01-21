@@ -102,9 +102,9 @@ class GeneralizedRCNN(nn.Module):
         per_slice_features = self.backbone(images.tensors) # OrderedDict('0': list[torch.Size([B, 256, 161, 163], ...)], '1': list[torch.Size([B, 256, 81, 82]), ...], '2': list[torch.Size([B, 256, 41, 41]), ...], '3': list[torch.Size([B, 256, 21, 21]) ...])
 
         features = OrderedDict()
-        for key in per_slice_features.keys():
+        for i, key in enumerate(per_slice_features.keys()):
             scale_feature = per_slice_features[key] # eg.  list[torch.Size([B, 256, 161, 163], ...)]
-            squeeze_n_excite_feature = self.early_mlp_fusion_module(scale_feature) # torch.Size([B, 256, 161, 163], ...)
+            squeeze_n_excite_feature = self.early_mlp_fusion_module(scale_feature, key) # torch.Size([B, 256, 161, 163], ...)
             features.update({ key: squeeze_n_excite_feature })
         
         if isinstance(features, torch.Tensor):
