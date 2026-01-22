@@ -54,6 +54,7 @@ def main():
         start_epoch_time = datetime.now()
         epoch_loss = 0
         print_rate_loss = 0
+        iterations = 0
         for images, targets in train_dataloader:
             images = images.to(device)
             targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
@@ -70,11 +71,14 @@ def main():
             if global_iterations == 0:
                 print(images.shape)
             global_iterations += 1
-            if global_iterations % print_rate == 0:
+            iterations += 1
+
+            if iterations % print_rate == 0:
                 print_rate_loss = print_rate_loss / print_rate
-                logger.info(f"Loss at epoch {epoch} at iteration {global_iterations%len(train_dataloader)}: {print_rate_loss:.4f}")
+                logger.info(f"Loss at epoch {epoch} at iteration {iterations}: {print_rate_loss:.4f}")
                 print_rate_loss = 0
-                # logger.info(f"per_slice_bias: {model.early_mlp_fusion_module.static_logits.tolist()}")
+                # logger.info(f"per_slice_bias: {model.early_mlp_fusion_module.static_logits.tolist()}")#
+
             for loss_name, loss_value in loss_dict.items():
                 writer.add_scalar(f'Loss/{loss_name}', loss_value.item(), global_iterations)
             writer.add_scalar("Total Loss", loss, global_iterations)
@@ -108,9 +112,26 @@ def main():
 
         SEG_result = subprocess.run(["./SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
-    text=True)
-        logger.info(f"VALIDATION SEG SCORE: {SEG_result.stdout.strip()}")
-        writer.add_scalar("Val_SEG", SEG_result, epoch)
+    text=True).stdout.strip()
+        logger.info(f"VALIDATION SEG SCORE: {SEG_result}")
+        writer.add_scalar("Val_SEG", float(SEG_result[SEG_result.find(':')+1:]), epoch)
+
+        model.train()
+        val_loss_total = 0.0
+
+        for images, targets in val_dataloader:
+            images = images.to(device)
+            targets = [{k: v.to(device) for k, v in t_dict.items()} for t_dict in targets]
+
+            with torch.no_grad(): 
+                loss_dict = model(images, targets)  
+                loss = sum(loss for loss in loss_dict.values())
+            
+            val_loss_total += loss.item()
+
+        val_loss_avg = val_loss_total / len(val_dataloader)
+        logger.info(f"Validation Loss at Epoch {epoch}: {val_loss_avg}")
+        writer.add_scalar("Val_loss", val_loss_avg, epoch)
         
 if __name__ == "__main__":
     freeze_support()

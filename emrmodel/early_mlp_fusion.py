@@ -62,8 +62,21 @@ class SliceSEFusion(nn.Module):
         )
 
         # Optional static bias per slice (helps encode "center slice is usually best")
-        self.static_logits = get_init_bias(init_bias_type=init_bias, num_slices=num_slices)
+        self.static_logits = self.get_init_bias(init_bias_type=init_bias)
 
+    def get_init_bias(self, init_bias_type=None):
+        if init_bias_type == None or init_bias_type == "zero":
+            bias = torch.zeros(self.num_slices)
+        elif init_bias_type == "only_center":
+            bias = [0.0 for _ in range(self.num_slices)]
+            bias[self.num_slices//2] = 1
+            bias = torch.tensor(bias)
+        elif init_bias_type == "gaussian":
+            x = torch.linspace(-1, 1, self.num_slices)
+            bias = torch.exp(-x**2 / (2*5))  # sigma = 5
+            bias /= bias.sum()
+        return nn.Parameter(bias)
+    
     def forward(self, feats_per_slice, *args):
         """
         feats_per_slice: list of length S, each [B, C, H, W]
@@ -179,17 +192,12 @@ class SliceSEFusionPerFPN(nn.Module):
             self.fusionClassType = fusionType
 
         self.fusionModules = nn.ModuleDict({
-            i: self.fusionClassType(num_slices=num_slices, channels=channels, reduction=reduction, init_bias=init_bias) for i in ['0', '1', '2', '3', 'pool']
-        })
-
-        # self.static_logits = nn.ParameterDict({
-        #     '0': get_init_bias(num_slices=num_slices, init_bias_type="only_center"),
-        #     '1': get_init_bias(num_slices=num_slices, init_bias_type="gauss"),
-        #     '2': get_init_bias(num_slices=num_slices, init_bias_type="gauss"),
-        #     '3': get_init_bias(num_slices=num_slices, init_bias_type="zero"),
-        #     'pool': get_init_bias(num_slices=num_slices, init_bias_type="zero"),
-
-        # })
+            '0': self.fusionClassType(num_slices=num_slices, channels=channels, reduction=reduction, init_bias="only_center"),
+            '1': self.fusionClassType(num_slices=num_slices, channels=channels, reduction=reduction, init_bias="gaussian"),
+            '2': self.fusionClassType(num_slices=num_slices, channels=channels, reduction=reduction, init_bias="gaussian"),
+            '3': self.fusionClassType(num_slices=num_slices, channels=channels, reduction=reduction, init_bias="zero"),
+            'pool': self.fusionClassType(num_slices=num_slices, channels=channels, reduction=reduction, init_bias="zero")
+        }) # hardcoding init_bias and resnet50fpn levels
     
     def forward(self, feats_per_slice, key, *args):
         x = self.fusionModules[key].forward(feats_per_slice)
@@ -198,16 +206,3 @@ class SliceSEFusionPerFPN(nn.Module):
 class SlicePixelAttentionPerFPN(SliceSEFusionPerFPN):
     def __init__(self, num_slices, channels, reduction = 16, init_bias=None):
         super().__init__(num_slices, channels, reduction, init_bias, fusionType=SlicePixelAttention)
-
-def get_init_bias(init_bias_type=None, num_slices:int=3):
-        if init_bias_type == None or init_bias_type == "zero":
-            bias = torch.zeros(num_slices)
-        elif init_bias_type == "only_center":
-            bias = [0.0 for _ in range(num_slices)]
-            bias[num_slices//2] = 1
-            bias = torch.tensor(bias)
-        elif init_bias_type == "gaussian":
-            x = torch.linspace(-num_slices, num_slices, num_slices)
-            bias = torch.exp(-x**2 / (2*2*num_slices))  # sigma = 5
-            bias /= bias.sum()
-        return nn.Parameter(bias)
