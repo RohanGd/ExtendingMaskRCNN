@@ -32,6 +32,12 @@ Cool. Here is what I am going to do now:
 7. Implement convolution instead of MLP (early late convolutional fusion) 
 8. Pixel wise attention.
 
+## TODO 28.01.2026
+1. Log the weights , logits_dynamics, and static logits for slice sE, windowed slice SE, pixel SE.
+2. Formulate why you changed your approach in pixelattn
+3. Create visualization for each of these methods, gaussians for pixel, alphavalue for slice
+4. Remove static 
+
 
 ## SEG score CLI tool
 Stack the 2d masks volume wise and save as man_seg001.tif file in a folder called 01_GT/SEG
@@ -49,6 +55,25 @@ ALso, should I pretrain a 2d model for the dataset and then load it into the ext
 It was observed using a software like napier, slice of real image vs slice of man_seg image that adjusting contrast limits, gamma correction.
 See napierView.py
 Possibility of gamma and contrast limiting as a learnable parameter
+
+22.01.2026
+Perhaps the above things are auto learned by the backbone feature maps.
+
+Experiment Observations:
+- Per FPN MLP performed worse than global slice MLP. The reasoning for this that I understand is:
+The instances in a slice shift by some distance or change size as you  move through the slices. Now we are introducing a different weighting across FPN levels. Same spatial location corresponds to the dame object instance, but viewed at different scales. '0'(x, y) ~ '1'(x/2, y/2) ~ '2'(x/4, y/4) ~ '3'(x/8, y/8). But each of these are feature maps of the same instance. 
+If we have different weights w1=(w11, w12, w13), w2=(w21, w22, w23), w3=(w31, w32, w33) and so on for different fpn levels, we will have each level influencing which slice to choose.
+For eg. for '0', say w12 > w11 and w13, but for '2' w31 > w32 and w33.
+Thus when the slices are weighted by these weights we have center slice at level 0 but -1th slice at level 2. But we know that the instances shift or change in size across slices, so this causes inconsistent spatial representation especially for box prediction.
+
+In the case of simple Slice SE mlp fusion, each fpn level affects the same slice weight, so across all fpn levels slice weighting is same. Nevertheless, it hasn't given a significant increase in score.
+
+In teh case of Pixel wise Slice SE mlp fusion, we are weighting for each pixel, which slice to choose. This converged much sooner than globalSE but did not surpass it eventually. This is because ...
+/22.01.2026
+
+28.01.2026
+Printed out the weights and saw that the logits dynamics are much smaller than the static_logits. THis is the case even for zero_bias. Thus the softmay is dominated by the static logits and my hypothesis is by doing so the model is not learning to use these logit_dynamics at all. So as pyrt of A/B testing, try removing the static logits.
+/28.01.2026
 
 
 # DataFlow and Architecture So Far

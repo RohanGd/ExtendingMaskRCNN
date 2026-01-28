@@ -32,7 +32,7 @@ class IdentityFusion(nn.Module):
         super().__init__()
         self.static_logits = torch.zeros((0,))
         return
-    def forward(self, feats_per_slice):
+    def forward(self, feats_per_slice, *args):
         return feats_per_slice
 
 

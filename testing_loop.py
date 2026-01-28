@@ -38,7 +38,6 @@ def main():
     model = model.to(device=device)
     model.eval()
 
-    print_rate = cfg.get_int("LOOP", "print_rate", 100)
     only_SEG_score = cfg.get_bool("LOOP", "only_SEG_score", 1)
     # testing loop
     start_time = datetime.now()
