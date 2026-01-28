@@ -6,7 +6,7 @@ from emrMetrics import emrMetrics
 import sys, os, subprocess
 import torch, numpy, tifffile
 from datetime import datetime
-from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger
+from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger, Fusion_Logger
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
 from multiprocessing import freeze_support
@@ -26,6 +26,7 @@ def main():
 
     logger = setup_logger(log_file)
     logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
+    Fusion_Logger.set(cfg, exp_dir)
 
     # set up dataset and dataloader
     loader_builder = DataloaderBuilder(cfg, logger)
@@ -55,7 +56,7 @@ def main():
                 metrics.update(preds, targets)
 
     make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["test"], pred_masks_dir=pred_masks_dir)
-    
+    Fusion_Logger.save()
     logger.info(metrics)
     metrics_results_save_path=f"{exp_dir}/test_metrics.txt"
     metrics.save(path=metrics_results_save_path)
