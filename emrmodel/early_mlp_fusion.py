@@ -23,9 +23,10 @@ Simply pass each B, S, C, 14, 14 to the SLiceSEFusion to get [4, B, C, 14, 14]
 
 """
 
-import torch, numpy
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from emrConfigManager import Fusion_Logger
 
 class IdentityFusion(nn.Module):
     def __init__(self, num_slices: None, channels: None, reduction: int = 16, init_bias=None):
@@ -93,11 +94,11 @@ class SliceSEFusion(nn.Module):
         # Flatten slice dimension into batch for MLP: [B*S, C]
         # MLP to get one logit per slice element: [B*S, 1] -> [B, S]
         logits_dynamic = self.mlp(g).squeeze(-1)
-
         # Add static per-slice logits and softmax along slice dimension
         # logits = logits_dynamic + self.static_logits  # broadcast over batch
         weights = F.softmax(logits_dynamic, dim=1)            # [B, S]
 
+        Fusion_Logger.log(logits_dynamic.detach(), self.static_logits.detach(), weights.detach(), weights_shape=weights.shape)
         # Apply weights to feature maps: [B, S, 1, 1, 1] for broadcasting
         w = weights.view(B, self.num_slices, 1, 1, 1)
         fused = (x * w).sum(dim=1)  # [B, C, H, W]
@@ -145,6 +146,7 @@ class SliceSEFusionFixedWindow(SliceSEFusion):
         logits_dynamic = logits_dynamic.squeeze(-1)
 
         weights = F.softmax(logits_dynamic, dim=-1)            # [B, ~H/k, ~W/k, S]
+        Fusion_Logger.log(logits_dynamic.detach(), self.static_logits.detach(), weights.detach(), weights_shape=weights.shape)
         weights = weights[:, :, None, :, :, None, None] # [B, S, C, ~H/k, ~W/k, k, k]
 
         fused = (x * weights).sum(1) # [B, C, ~H/k, ~W/k, k, k]
@@ -172,6 +174,8 @@ class SlicePixelAttention(SliceSEFusion):
         logits = self.mlp(x_mean)  # [B, S, H, W]
         logits = logits + self.static_logits[:, None, None]
         weights = torch.softmax(logits, dim=1)  # [B, S, H, W]
+        Fusion_Logger.log(logits.detach(), self.static_logits.detach(), weights.detach(), weights_shape=weights.shape)
+
         fused = (x * weights[:, :, None, :, :]).sum(dim=1)
         return fused
 

@@ -36,7 +36,7 @@ Cool. Here is what I am going to do now:
 1. Log the weights , logits_dynamics, and static logits for slice sE, windowed slice SE, pixel SE.
 2. Formulate why you changed your approach in pixelattn
 3. Create visualization for each of these methods, gaussians for pixel, alphavalue for slice
-4. Remove static 
+4. Remove static logits
 
 
 ## SEG score CLI tool

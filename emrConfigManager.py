@@ -3,6 +3,8 @@ import configparser
 import time
 import logging
 from json import dumps as json_dumps
+import pandas as pd
+from torch import Tensor
 
 
 class emrConfigManager:
@@ -92,3 +94,34 @@ def setup_logger(log_path):
     logger.addHandler(fh)
     logger.addHandler(sh)
     return logger
+
+class fusion_weights_logger():
+    def __init__(self):
+        pass
+
+    def set(self, cfg, exp_dir):
+        self.exp_dir = exp_dir
+        self.cfg = cfg
+        self.columns = ["iter", "iter_batch", "logits_dynamic", "logits_static", "slice_weights", "weights_shape"]
+        self.rows = list()
+        self.iter = 0
+    
+    def log(self, logits_dynamic: Tensor, logits_static: Tensor, slice_weights: Tensor, weights_shape):
+        B = weights_shape[0]
+        for b in range(B):
+            self.rows.append({
+                'iter': self.iter,
+                'iter_batch': b,
+                'logits_dynamic': logits_dynamic[b].cpu().numpy(),
+                'logits_static': logits_static.cpu().numpy(),
+                'slice_weights': slice_weights[b].cpu().numpy(),
+                'weights_shape': weights_shape
+            })
+            self.iter += 1
+    
+    def save(self):
+        df = pd.DataFrame(self.rows, columns=self.columns)
+        df.to_pickle(f"{self.exp_dir}/fusion_weights.pkl")
+    
+
+Fusion_Logger = fusion_weights_logger()
