@@ -62,7 +62,7 @@ class SliceSEFusion(nn.Module):
         )
 
         # Optional static bias per slice (helps encode "center slice is usually best")
-        self.static_logits = self.get_init_bias(init_bias_type=init_bias)
+        # self.static_logits = self.get_init_bias(init_bias_type=init_bias)
 
     def get_init_bias(self, init_bias_type=None):
         if init_bias_type == None or init_bias_type == "zero":
@@ -95,8 +95,8 @@ class SliceSEFusion(nn.Module):
         logits_dynamic = self.mlp(g).squeeze(-1)
 
         # Add static per-slice logits and softmax along slice dimension
-        logits = logits_dynamic + self.static_logits  # broadcast over batch
-        weights = F.softmax(logits, dim=1)            # [B, S]
+        # logits = logits_dynamic + self.static_logits  # broadcast over batch
+        weights = F.softmax(logits_dynamic, dim=1)            # [B, S]
 
         # Apply weights to feature maps: [B, S, 1, 1, 1] for broadcasting
         w = weights.view(B, self.num_slices, 1, 1, 1)
@@ -115,7 +115,7 @@ class SliceSEFusionFixedWindow(SliceSEFusion):
     Output:
         fused: tensor of shape [B, C, H, W]
     """
-    def __init__(self, num_slices: int, channels: int, reduction: int = 16, window_size=7, init_bias=None):
+    def __init__(self, num_slices: int, channels: int, reduction: int = 16, window_size=1, init_bias=None):
         super().__init__(num_slices, channels, reduction, init_bias)
         self.k = window_size
 
@@ -137,26 +137,20 @@ class SliceSEFusionFixedWindow(SliceSEFusion):
         x = x.unfold(3, k, k).unfold(4, k, k) # [B, S, C, ~H/k, ~W/k, k, k] 
         # mean pooling over K*k -> [B, S, C, ~H/k, ~W/k]
         
-        g = x.mean(dim=(-1, -2))
-        g = g.permute(0, 3, 4, 1, 2) # [B, ~H/k, ~W/k, S, C]
-        
+        g = x.mean(dim=(-1, -2)) # [B, S, C, ~H/k, ~W/k]
+        g = g.permute(0,1,3,4,2) # [B, S, H/k, W/k, C]
+
         # MLP to get one logit per slice element: [B, ~H/k, ~W/k, S, C] -> [B, ~H/k, ~W/k, S, 1]
         logits_dynamic = self.mlp(g)
         logits_dynamic = logits_dynamic.squeeze(-1)
 
-        # # Add static per-slice logits and softmax along slice dimension
-        logits = logits_dynamic + self.static_logits  # broadcast over batch
-        weights = F.softmax(logits, dim=-1)            # [B, ~H/k, ~W/k, S]
+        weights = F.softmax(logits_dynamic, dim=-1)            # [B, ~H/k, ~W/k, S]
+        weights = weights[:, :, None, :, :, None, None] # [B, S, C, ~H/k, ~W/k, k, k]
 
-        # Apply weights to feature maps: [B, S, 1, 1, 1] for broadcasting
-        w = weights.permute(0, 3, 1, 2)
-        w = w[:, :, None, :, :, None, None]
-        
-        fused = x * w # [B, S, C, ~H/k, ~W/k, k, k]
-        fused = fused.sum(dim=1)  # [B, C, ~H/k, ~W/k, k, k] # summing along the S dim
+        fused = (x * weights).sum(1) # [B, C, ~H/k, ~W/k, k, k]
         fused = fused.permute(0, 1, 4, 2, 5, 3)
         fused = fused.reshape(B, C, Hp, Wp)
-        fused = fused[:, :, :H, :W] # removeing padding, was only added to bottom and right
+        fused = fused[:, :, :H, :W]
 
         return fused
 

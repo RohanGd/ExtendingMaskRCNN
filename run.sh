@@ -1,0 +1,2 @@
+python training_loop.py config/early_mlp_experiments/slicesemlp_zerobias.ini 
+python training_loop.py config/early_mlp_experiments/windowedslicesemlp_zerobias.ini
