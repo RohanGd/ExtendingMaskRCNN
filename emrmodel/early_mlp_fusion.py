@@ -63,7 +63,7 @@ class SliceSEFusion(nn.Module):
         )
 
         # Optional static bias per slice (helps encode "center slice is usually best")
-        # self.static_logits = self.get_init_bias(init_bias_type=init_bias)
+        self.static_logits = self.get_init_bias(init_bias_type=init_bias)
 
     def get_init_bias(self, init_bias_type=None):
         if init_bias_type == None or init_bias_type == "zero":
@@ -98,7 +98,7 @@ class SliceSEFusion(nn.Module):
         # logits = logits_dynamic + self.static_logits  # broadcast over batch
         weights = F.softmax(logits_dynamic, dim=1)            # [B, S]
 
-        Fusion_Logger.log(logits_dynamic.detach(), self.static_logits.detach(), weights.detach(), weights_shape=weights.shape)
+        Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
         # Apply weights to feature maps: [B, S, 1, 1, 1] for broadcasting
         w = weights.view(B, self.num_slices, 1, 1, 1)
         fused = (x * w).sum(dim=1)  # [B, C, H, W]
@@ -107,16 +107,19 @@ class SliceSEFusion(nn.Module):
 
 class SliceSEFusionFixedWindow(SliceSEFusion):
     """
-    Squeeze-and-Excitation style fusion over slices.
+    Slice-wise SE fusion with spatial windows.
+
+    - window_size = 1  -> pixel-wise slice attention
+    - window_size > 1  -> block-wise slice attention
 
     Inputs:
         feats_per_slice: list of length S
-            each element is a tensor of shape [B, C, H, W]
+            each element: [B, C, H, W]
 
     Output:
-        fused: tensor of shape [B, C, H, W]
+        fused: [B, C, H, W]
     """
-    def __init__(self, num_slices: int, channels: int, reduction: int = 16, window_size=1, init_bias=None):
+    def __init__(self, num_slices: int, channels: int, reduction: int = 16, window_size:int = 1, init_bias=None):
         super().__init__(num_slices, channels, reduction, init_bias)
         self.k = window_size
 
@@ -130,32 +133,38 @@ class SliceSEFusionFixedWindow(SliceSEFusion):
         x = torch.stack(feats_per_slice, dim=1)
         B, S, C, H, W = x.shape
         k = self.k
+
+        # Pad so H, W divisible by k
         pad_h = (k - H % k) % k
         pad_w = (k - W % k) % k
-        x = F.pad(x, (0, pad_w, 0, pad_h))  # padding is added only to the bottom and right
+        x = F.pad(x, (0, pad_w, 0, pad_h)) # # right-bottom padding
         Hp, Wp = H + pad_h, W + pad_w
 
-        x = x.unfold(3, k, k).unfold(4, k, k) # [B, S, C, ~H/k, ~W/k, k, k] 
-        # mean pooling over K*k -> [B, S, C, ~H/k, ~W/k]
+        # Unfold into windows [B, S, C, Hp/k, Wp/k, k, k]
+        x_win = x.unfold(3, k, k).unfold(4, k, k)
         
-        g = x.mean(dim=(-1, -2)) # [B, S, C, ~H/k, ~W/k]
-        g = g.permute(0,1,3,4,2) # [B, S, H/k, W/k, C]
+        # Mean over spatial window [B, S, C, Hp/k, Wp/k]
+        g = x_win.mean(dim=(-1, -2))
 
-        # MLP to get one logit per slice element: [B, ~H/k, ~W/k, S, C] -> [B, ~H/k, ~W/k, S, 1]
-        logits_dynamic = self.mlp(g)
-        logits_dynamic = logits_dynamic.squeeze(-1)
+        # Channels-last for Linear MLP [B, S, Hp/k, Wp/k, C]
+        g = g.permute(0, 1, 3, 4, 2)
 
-        weights = F.softmax(logits_dynamic, dim=-1)            # [B, ~H/k, ~W/k, S]
-        Fusion_Logger.log(logits_dynamic.detach(), self.static_logits.detach(), weights.detach(), weights_shape=weights.shape)
-        weights = weights[:, :, None, :, :, None, None] # [B, S, C, ~H/k, ~W/k, k, k]
+        # mlp, use 256 channels to give 1 [B, S, Hp/k, Wp/k]
+        logits_dynamic = self.mlp(g).squeeze(-1)
+        weights = F.softmax(logits_dynamic, dim=1) # [B, S, Hp/k, Wp/k]
 
-        fused = (x * weights).sum(1) # [B, C, ~H/k, ~W/k, k, k]
-        fused = fused.permute(0, 1, 4, 2, 5, 3)
-        fused = fused.reshape(B, C, Hp, Wp)
-        fused = fused[:, :, :H, :W]
+        Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
+        # [B, S, 1, Hp/k, Wp/k, 1, 1]
+        weights = weights[:, :, None, :, :, None, None]
+
+        # Weighted sum over slices [B, C, Hp/k, Wp/k, k, k]
+        fused = (x_win * weights).sum(dim=1)
+
+        # Fold back to spatial map make [B, C, k, H/k, k, W/k]
+        fused = fused.permute(0, 1, 4, 2, 5, 3).reshape(B, C, Hp, Wp)
+        fused = fused[:, :, :H, :W] # right-bottom padding
 
         return fused
-
 
 class SlicePixelAttention(SliceSEFusion):
     def __init__(self, num_slices, channels, reduction = 16, init_bias=None):

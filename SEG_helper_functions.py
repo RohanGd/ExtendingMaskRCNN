@@ -50,7 +50,7 @@ def binary_slices_to_instance_volume(binary_slices):
     returns: (Z, H, W) labeled volume
     """
     binary_3d = np.stack(binary_slices, axis=0)
-    instance_3d = label(binary_3d, connectivity=1)
+    instance_3d = label(binary_3d, connectivity=3)
     return instance_3d.astype(np.uint16)
 
 """
