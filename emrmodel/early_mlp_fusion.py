@@ -98,7 +98,7 @@ class SliceSEFusion(nn.Module):
         # logits = logits_dynamic + self.static_logits  # broadcast over batch
         weights = F.softmax(logits_dynamic, dim=1)            # [B, S]
 
-        Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
+        # Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
         # Apply weights to feature maps: [B, S, 1, 1, 1] for broadcasting
         w = weights.view(B, self.num_slices, 1, 1, 1)
         fused = (x * w).sum(dim=1)  # [B, C, H, W]
@@ -153,7 +153,7 @@ class SliceSEFusionFixedWindow(SliceSEFusion):
         logits_dynamic = self.mlp(g).squeeze(-1)
         weights = F.softmax(logits_dynamic, dim=1) # [B, S, Hp/k, Wp/k]
 
-        Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
+        # Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
         # [B, S, 1, Hp/k, Wp/k, 1, 1]
         weights = weights[:, :, None, :, :, None, None]
 

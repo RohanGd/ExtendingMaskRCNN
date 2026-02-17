@@ -3,7 +3,8 @@ from torch import nn
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
-from torchvision.models.detection.rpn import RegionProposalNetwork, RPNHead
+# from torchvision.models.detection.rpn import RegionProposalNetwork, RPNHead
+from emrmodel.rpn import RegionProposalNetwork, RPNHead
 from torchvision.models.detection.roi_heads import RoIHeads
 import torch.nn.functional as F
 from torchvision.ops import misc as misc_nn_ops
@@ -12,8 +13,9 @@ from typing import Callable, List, Optional, Tuple
 from emrmodel.generalized_rcnn import GeneralizedRCNN
 
 def _default_anchorgen():
-    anchor_sizes = ((32,), (64,), (128,), (256,), (512,))
-    aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
+    # anchor_sizes = ((32,), (64,), (128,), (256,), (512,))
+    anchor_sizes = ((16,), (24,), (32,), (48,), (64,))
+    aspect_ratios = ((0.75, 1.0, 1.5),) * len(anchor_sizes)
     return AnchorGenerator(anchor_sizes, aspect_ratios)
 
 
@@ -201,12 +203,12 @@ class FasterRCNN(GeneralizedRCNN):
             if box_predictor is None:
                 raise ValueError("num_classes should not be None when box_predictor is not specified")
 
-        out_channels = backbone.out_channels
+        out_channels = backbone.out_channels # 256
 
         if rpn_anchor_generator is None:
             rpn_anchor_generator = _default_anchorgen()
         if rpn_head is None:
-            rpn_head = RPNHead(out_channels, rpn_anchor_generator.num_anchors_per_location()[0])
+            rpn_head = RPNHead(out_channels, rpn_anchor_generator.num_anchors_per_location()[0]) # param(256, 3)
 
         rpn_pre_nms_top_n = dict(training=rpn_pre_nms_top_n_train, testing=rpn_pre_nms_top_n_test)
         rpn_post_nms_top_n = dict(training=rpn_post_nms_top_n_train, testing=rpn_post_nms_top_n_test)

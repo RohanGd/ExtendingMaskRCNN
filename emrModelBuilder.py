@@ -11,7 +11,7 @@ class ModelBuilder:
 
     def load_model(self, dataset_name="None"):
         num_slices_per_batch = self.cfg.get_int("MODEL", "num_slices_per_batch", 3)
-        min_size = self.cfg.get_int("MODEL", "min_size", 800)
+        min_size = self.cfg.get_int("MODEL", "min_size", 512)
         max_size = self.cfg.get_int("MODEL", "max_size", 1333)
         num_classes = self.cfg.get_int("MODEL", "num_classes", 2)
         rpn_positive_fraction = self.cfg.get_float("MODEL", "rpn_positive_fraction", 0.5)
