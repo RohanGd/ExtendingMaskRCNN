@@ -17,14 +17,14 @@ import os
 from torch.utils.data import Dataset
 import tifffile as tiff
 import torch
-from emrConfigManager import setup_logger
+from emrConfigManager import setup_logger, DATAPATH
 import warnings
 import numpy
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
 class emrDataset(Dataset):
-    def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3, load_from_cache=True, logger=None, mode="train"):
+    def __init__(self, imgs_dir: str = None, masks_dir: str = None, n: int = 3, dataset_name = "Fluo-N3DH-SIM+", logger=None, mode="train"):
         """
         Initializes the dataset with image and mask directories and the 2.5D context window size.
 
@@ -53,8 +53,8 @@ class emrDataset(Dataset):
         self.v, self.s = 4, 3
 
         try:
-            self.img_files = sorted(os.listdir(f"datasets/{self.dataset_name}/{self.mode}/imgs/"))
-            self.mask_files = sorted(os.listdir(f"datasets/{self.dataset_name}/{self.mode}/masks/"))
+            self.img_files = sorted(os.listdir(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/imgs/"))
+            self.mask_files = sorted(os.listdir(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/masks/"))
         except FileNotFoundError:
             raise FileNotFoundError("CAnnot find the required folder. Run dataSplitter.py to create dataset.")
 
@@ -95,7 +95,7 @@ class emrDataset(Dataset):
                 img_slice = torch.ones(size=(self.H, self.W)) * eps
             else:
                 # get slice at v_idx at slice_idx
-                img_slice = numpy.load(f"datasets/{self.dataset_name}/{self.mode}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.npy")
+                img_slice = numpy.load(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.npy")
                 img_slice = torch.from_numpy(img_slice)
             img_slices.append(img_slice)
         
@@ -103,7 +103,7 @@ class emrDataset(Dataset):
 
         # mask / target
         slice_idx = idx % self.v_size
-        target_npz = numpy.load(f"datasets/{self.dataset_name}/{self.mode}/masks/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.npz")
+        target_npz = numpy.load(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/masks/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.npz")
         target = dict()
         for key in target_npz:
             target[key] = torch.from_numpy(target_npz[key])

@@ -5,11 +5,11 @@ from random import shuffle
 import tifffile as tiff
 import torch.nn.functional as F
 from tqdm import tqdm
-
+from emrConfigManager import DATAPATH
 
 def main():
-    dataset_path = "data/Fluo-N3DH-CHO"
-    # dataset_path = "data/Fluo-N3DH-SIM+"
+    dataset_path = f"{DATAPATH}/data/Fluo-N3DH-CHO"
+    # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-SIM+"
 
     rusure = input(f"WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\nFor dataset: {dataset_path}\n Enter Y/N:    ")
     if rusure != "Y":
@@ -32,7 +32,7 @@ def main():
 
 
 def create_new_dir_struct(dataset_path:str):
-    new_path = "datasets/" + dataset_path.split("/")[-1]
+    new_path = f"{DATAPATH}/datasets/" + dataset_path.split("/")[-1]
     if not os.path.exists(new_path):
         subdirs = ["train/imgs", "train/masks", "test/imgs", "test/masks", "val/imgs", "val/masks"]
         for subdir in subdirs:

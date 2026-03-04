@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from emrDataset import emrDataset, emrCollate_fn
+from emrConfigManager import DATAPATH
 
 class DataloaderBuilder:
     def __init__(self, cfg, logger):
@@ -9,9 +10,9 @@ class DataloaderBuilder:
         self.imgs_dir, self.masks_dir = dict(), dict()
 
     def build(self, mode="train"):
-        dataset = self.cfg.get("DATASET", "dataset_name")
-        self.imgs_dir[mode] = "datasets/" + dataset + "/" + mode + "/imgs"
-        self.masks_dir[mode] = "datasets/" + dataset + "/" + mode + "/masks"
+        dataset_name = self.cfg.get("DATASET", "dataset_name")
+        self.imgs_dir[mode] = f"{DATAPATH}/datasets/" + dataset_name + "/" + mode + "/imgs"
+        self.masks_dir[mode] = f"{DATAPATH}/datasets/" + dataset_name + "/" + mode + "/masks"
 
         num_slices_per_batch = self.cfg.get_int("MODEL", "num_slices_per_batch")
         batch_size = self.cfg.get_int("LOOP", "batch_size", 1) 
@@ -20,6 +21,7 @@ class DataloaderBuilder:
             imgs_dir=self.imgs_dir[mode],
             masks_dir=self.masks_dir[mode],
             n=num_slices_per_batch,
+            dataset_name=dataset_name,
             logger=self.logger,
             mode=mode
         )

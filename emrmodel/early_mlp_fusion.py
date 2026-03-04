@@ -73,7 +73,7 @@ class SliceSEFusion(nn.Module):
             bias[self.num_slices//2] = 1
             bias = torch.tensor(bias)
         elif init_bias_type == "gaussian":
-            x = torch.linspace(-1, 1, self.num_slices)
+            x = torch.linspace(-(self.num_slices-2), (self.num_slices-2), self.num_slices)
             bias = torch.exp(-x**2 / (2*5))  # sigma = 5
             bias /= bias.sum()
         return nn.Parameter(bias)
@@ -95,7 +95,12 @@ class SliceSEFusion(nn.Module):
         # MLP to get one logit per slice element: [B*S, 1] -> [B, S]
         logits_dynamic = self.mlp(g).squeeze(-1)
         # Add static per-slice logits and softmax along slice dimension
-        # logits = logits_dynamic + self.static_logits  # broadcast over batch
+        logits = logits_dynamic + self.static_logits  # broadcast over batch
+        weights = F.softmax(logits, dim=1)            # [B, S]
+
+        if not self.training:
+            Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
+
         weights = F.softmax(logits_dynamic, dim=1)            # [B, S]
 
         # Fusion_Logger.log(logits_dynamic.detach(), torch.zeros((1,3)).detach(), weights.detach(), weights_shape=weights.shape)
@@ -183,7 +188,7 @@ class SlicePixelAttention(SliceSEFusion):
         logits = self.mlp(x_mean)  # [B, S, H, W]
         logits = logits + self.static_logits[:, None, None]
         weights = torch.softmax(logits, dim=1)  # [B, S, H, W]
-        Fusion_Logger.log(logits.detach(), self.static_logits.detach(), weights.detach(), weights_shape=weights.shape)
+        # Fusion_Logger.log(logits.detach(), self.static_logits.detach(), weights.detach(), weights_shape=weights.shape)
 
         fused = (x * weights[:, :, None, :, :]).sum(dim=1)
         return fused

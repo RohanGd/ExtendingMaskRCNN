@@ -5,7 +5,7 @@ python training_loop.py configfile
 import sys, os, subprocess
 import torch
 from datetime import datetime
-from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger
+from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger, Fusion_Logger, DATAPATH
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
 from SEG_helper_functions import save_preds, make_files_for_SEG
@@ -24,6 +24,7 @@ def main():
     exp_dir,exp_name, log_file = create_experiment_folder(cfg, mode="train")
     logger = setup_logger(log_file)
     logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
+    Fusion_Logger.set(cfg, exp_dir)
 
     # set up dataset and dataloader
     loader_builder = DataloaderBuilder(cfg, logger)
@@ -83,56 +84,71 @@ def main():
                 writer.add_scalar(f'Loss/{loss_name}', loss_value.item(), global_iterations)
             writer.add_scalar("Total Loss", loss, global_iterations)
         
-        writer.add_scalar("Epoch Loss", epoch_loss/len(train_dataloader), epoch)
-        
+        writer.add_scalar("Epoch Loss", epoch_loss/len(train_dataloader), epoch)        
         end_epoch_time = datetime.now()
         logger.info(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}")
         ckpt_path = f"{exp_dir}/({epoch+1}_of_{num_epochs}).pt"
         torch.save(model.state_dict(), f=ckpt_path)
         logger.info(f"Model Saved at location: {ckpt_path}")
 
-        # validation
-        model.eval()
-        val_dataset, val_dataloader = loader_builder.build(mode='val')
-        pred_masks_dir = os.path.join(exp_dir, "pred_masks")
+        if cfg.get_bool("LOOP", "VALIDATION", False):
+            validation(model, loader_builder, exp_dir, device, epoch, logger, writer)
 
-        # erase contents of exp_dir/pred_masks but keep the empty folder
-        subprocess.run([f"rm -rf {pred_masks_dir}/*"], shell=True)
 
-        # then remove 01 rm -rf exp_dir/01
-        subprocess.run(f"rm -rf {exp_dir}/01", shell=True)
+def validation(model, loader_builder, exp_dir, device, epoch, logger, writer):
+    # validation
+    model.eval()
+    val_dataset, val_dataloader = loader_builder.build(mode='val')
+    pred_masks_dir = os.path.join(exp_dir, "pred_masks")
 
-        with torch.no_grad():
-            for images, targets, in val_dataloader:
-                images = images.to(device)
-                preds = model(images)
-                save_preds(preds, pred_masks_dir)
-        
-        make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["val"], pred_masks_dir=pred_masks_dir)
+    # erase contents of exp_dir/pred_masks but keep the empty folder
+    subprocess.run([f"rm -rf {pred_masks_dir}/*"], shell=True)
 
-        SEG_result = subprocess.run(["./SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True).stdout.strip()
-        logger.info(f"VALIDATION SEG SCORE: {SEG_result}")
-        writer.add_scalar("Val_SEG", float(SEG_result[SEG_result.find(':')+1:]), epoch)
+    # then remove 01 rm -rf exp_dir/01
+    subprocess.run(f"rm -rf {exp_dir}/01", shell=True)
 
-        model.train()
-        val_loss_total = 0.0
-
-        for images, targets in val_dataloader:
+    with torch.no_grad():
+        for images, targets, in val_dataloader:
             images = images.to(device)
-            targets = [{k: v.to(device) for k, v in t_dict.items()} for t_dict in targets]
+            preds = model(images)
+            save_preds(preds, pred_masks_dir)
+    
+    make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["val"], pred_masks_dir=pred_masks_dir)
 
-            with torch.no_grad(): 
-                loss_dict = model(images, targets)  
-                loss = sum(loss for loss in loss_dict.values())
-            
-            val_loss_total += loss.item()
+    SEG_result = subprocess.run([f".{DATAPATH}/ExtendingMaskRCNN/SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
+stderr=subprocess.STDOUT,
+text=True).stdout.strip()
+    logger.info(f"VALIDATION SEG SCORE: {SEG_result}")
+    try:
+        writer.add_scalar("Val_SEG", float(SEG_result[SEG_result.find(':')+1:]), epoch)
+    except:
+        pass
 
-        val_loss_avg = val_loss_total / len(val_dataloader)
-        logger.info(f"Validation Loss at Epoch {epoch}: {val_loss_avg}")
-        writer.add_scalar("Val_loss", val_loss_avg, epoch)
+    model.train()
+    val_loss_total = 0.0
+
+    for images, targets in val_dataloader:
+        images = images.to(device)
+        targets = [{k: v.to(device) for k, v in t_dict.items()} for t_dict in targets]
+
+        with torch.no_grad(): 
+            loss_dict = model(images, targets)  
+            loss = sum(loss for loss in loss_dict.values())
         
+        val_loss_total += loss.item()
+
+    val_loss_avg = val_loss_total / len(val_dataloader)
+    logger.info(f"Validation Loss at Epoch {epoch}: {val_loss_avg}")
+    writer.add_scalar("Val_loss", val_loss_avg, epoch)
+
+def freeze_backbone(model):
+    """Freeze backbone parameters to prevent weight updates"""
+    if hasattr(model, 'backbone'):
+        for param in model.backbone.parameters():
+            param.requires_grad = False
+
+
+
 if __name__ == "__main__":
     freeze_support()
     main()

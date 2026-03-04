@@ -1,0 +1,65 @@
+srun \
+  --container-image=/enroot/nvcr.io_nvidia_pytorch_23.12-py3.sqsh \
+  --container-workdir="`pwd`" \
+  --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/$USER:/netscratch/$USER,/ds:/ds:ro \
+  bash -c "pwd && ls -l && pip install imagecodecs && python datasetGenerator.py"
+
+
+srun \
+  --container-image=/enroot/kpatil_jagdale.sqsh \
+  --gpus=1 \
+  --container-workdir="/home/gadgil/ExtendingMaskRCNN" \
+  --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+  bash -c "pwd && ls -l /home/gadgil/ExtendingMaskRCNN && pip install imagecodecs && python /home/gadgil/ExtendingMaskRCNN/training_loop.py /home/gadgil/ExtendingMaskRCNN/config/early_mlp_experiments/slicesemlp_gaussianbias.ini"
+
+
+
+
+srun \
+--partition=RTX3090 \
+--gpus=1 \
+--ntasks=1 \
+--cpus-per-gpu=4 \
+--time=15:00:00 \
+--container-image=/enroot/kpatil_jagdale.sqsh \
+--container-workdir="/home/gadgil/ExtendingMaskRCNN" \
+--container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+bash -c "pip install imagecodecs && python training_loop.py config/early_mlp_experiments/slicesemlp_gaussianbias.ini"
+
+
+srun \
+--partition=RTX3090 \
+--gpus=1 \
+--mem=48G \
+--ntasks=1 \
+--cpus-per-gpu=4 \
+--time=15:00:00 \
+--container-image=/netscratch/gadgil/extending_maskrcnn_v1.sqsh \
+--container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+--container-workdir="/home/gadgil/ExtendingMaskRCNN" \
+python3 training_loop.py config/early_mlp_experiments/slicesemlp_gaussianbias.ini
+
+
+srun \
+--gpus=0 \
+--mem=32G \
+--time=00:15:00 \
+--container-image=/enroot/ubuntu+20.04.sqsh \
+--container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+--container-workdir="/home/gadgil/ExtendingMaskRCNN" \
+./SEGMeasure /netscratch/gadgil/Experiments/test/only_centerbias_n3_20260304_150527/ 01 4
+
+
+Global SliceSE Fusion:
+    gaussian:
+        SEG measure: 0.784717 - n7 
+        SEG measure: 0.771461 - n5 
+        SEG measure: 0.774424 - n3 
+        SEG measure: 0.756690 - n1 
+    only_center: 
+        SEG measure: 0.772490 - n3
+
+
+
+
+sbatch slurm/submit.sh

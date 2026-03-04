@@ -5,6 +5,12 @@ import logging
 from json import dumps as json_dumps
 import pandas as pd
 from torch import Tensor
+import platform
+from pathlib import Path
+
+# Better: check for a specific cluster environment rather than a single node
+IS_MANGI = platform.node() == "mangi"
+DATAPATH = Path("") if IS_MANGI else Path("/netscratch/gadgil/")
 
 
 class emrConfigManager:
@@ -60,7 +66,7 @@ def create_experiment_folder(cfg, mode):
     Returns:
         exp_dir, name, log_file
     """
-    root = "Experiments"
+    root = f"{DATAPATH}/Experiments"
     name = cfg.get("EXPERIMENT", "exp_name")
 
     t = time.strftime("%Y%m%d_%H%M%S")
@@ -120,8 +126,12 @@ class fusion_weights_logger():
             self.iter += 1
     
     def save(self):
-        df = pd.DataFrame(self.rows, columns=self.columns)
-        df.to_pickle(f"{self.exp_dir}/fusion_weights.pkl")
+        try:
+            df = pd.DataFrame(self.rows, columns=self.columns)
+            df.to_pickle(f"{self.exp_dir}/fusion_weights.pkl")
+            return f"Fusion weights saved at {self.exp_dir}/fusion_weights.pkl"
+        except Exception as e:
+            return f"Exception during saving fusion weights: {type(e).__name__} - {e}"
     
 
 Fusion_Logger = fusion_weights_logger()
