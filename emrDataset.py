@@ -43,7 +43,7 @@ class emrDataset(Dataset):
         if logger == None:
             logger = setup_logger("emrdataset.log")
 
-        self.dataset_name = os.path.normpath(imgs_dir).split(os.sep)[1]
+        self.dataset_name = dataset_name
         self.mode = mode
         self.n = n
         self.H, self.W = numpy.load(os.path.join(imgs_dir, img_files[0])).shape # total number of slices per volume /3d image, and H, W
@@ -70,7 +70,7 @@ class emrDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        """
+        """last
         Retrieves the image and mask corresponding to the given slice idx.
 
         Args:

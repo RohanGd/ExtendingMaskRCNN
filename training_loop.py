@@ -42,6 +42,10 @@ def main():
     # looping params
     num_epochs = cfg.get_int("LOOP", "num_epochs", 1)
     print_rate = cfg.get_int("LOOP", "print_rate", 100)
+    patience = cfg.get_int("LOOP", "early_stopping_patience", 3)
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
+
 
     writer = SummaryWriter(log_dir=exp_dir)
     total_params = sum([p.numel() for p in model.parameters()])
@@ -92,7 +96,23 @@ def main():
         logger.info(f"Model Saved at location: {ckpt_path}")
 
         if cfg.get_bool("LOOP", "VALIDATION", False):
-            validation(model, loader_builder, exp_dir, device, epoch, logger, writer)
+            val_loss = validation(model, loader_builder, exp_dir, device, epoch, logger, writer)
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                epochs_without_improvement = 0
+
+                best_ckpt = f"{exp_dir}/best_model.pt"
+                torch.save(model.state_dict(), best_ckpt)
+                logger.info(f"New best model saved: {best_ckpt}")
+
+            else:
+                epochs_without_improvement += 1
+                logger.info(f"No improvement for {epochs_without_improvement} epochs")
+
+            if epochs_without_improvement >= patience:
+                logger.info("Early stopping triggered")
+                break
 
 
 def validation(model, loader_builder, exp_dir, device, epoch, logger, writer):
@@ -140,6 +160,8 @@ text=True).stdout.strip()
     val_loss_avg = val_loss_total / len(val_dataloader)
     logger.info(f"Validation Loss at Epoch {epoch}: {val_loss_avg}")
     writer.add_scalar("Val_loss", val_loss_avg, epoch)
+
+    return val_loss_avg
 
 def freeze_backbone(model):
     """Freeze backbone parameters to prevent weight updates"""
