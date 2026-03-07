@@ -168,7 +168,7 @@ Some sort of regression on past predicted boxes, current predicted boxes and pas
 
 ## Architecture Understanding
 
-Okay so [MaskRCNN](venv/Lib/site-packages/torchvision/models/detection/mask_rcnn.py) init function initializes 3 main things:
+Okay so [MaskRCNN](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/models/detection/mask_rcnn.py) init function initializes 3 main things:
 - mask_roi_pool = MultiScaleRoIAlign
 - mask_head = MaskRCNNHeads
 - mask_predictor = MaskRCNNPredictor
@@ -185,9 +185,9 @@ The MaskRCNN inherits from FasterRCNN which inherits from GeneralizedRCNN which 
 
 
 ### Backbone
-####  [FPN](venv/Lib/site-packages/torchvision/ops/feature_pyramid_network.py)
+####  [FPN](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/ops/feature_pyramid_network.py)
 
-### [GeneralizedRCNN](venv/Lib/site-packages/torchvision/models/detection/generalized_rcnn.py)
+### [GeneralizedRCNN](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/models/detection/generalized_rcnn.py)
 
 init recieves
 - backbone (nn.Module)
@@ -219,7 +219,7 @@ The forward function does
 i.e., for each input ``(B, H, W)`` (C = 1 and unsqueezed as we are working with greyscale; change the GeneralizedRCNNTransform), we will get some ``m1, m2, ..mb`` detections, i.e. boxes, masks, corresponding labels, scores of some fixed size, i.e. 28*28 (unless changed in GeneralizedRCNNTransform.postprocess)
 
 
-### [RPNHead](venv/Lib/site-packages/torchvision/models/detection/rpn.py)
+### [RPNHead](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/models/detection/rpn.py)
 RPN head recieves feature maps from the anchor generator from the backbone, passes them through a series of conv layers to get the objectness score (cls_logits) and bounding box regression values for each anchor box.
 
 ``` python
@@ -229,7 +229,7 @@ self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1
 ```
 
  
-### [FasterRCNN](venv/Lib/site-packages/torchvision/models/detection/faster_rcnn.py)
+### [FasterRCNN](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/models/detection/faster_rcnn.py)
 
 init recieves:
 - backbone (nn.Module)
@@ -244,7 +244,7 @@ The box_head is initialized as TwoMLPHead with representation_size=1024 (2 fully
 The box_predictor is initialized as FastRCNNPredictor. 
 
 
-### [RoIHeads](venv/Lib/site-packages/torchvision/models/detection/roi_heads.py)
+### [RoIHeads](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/models/detection/roi_heads.py)
 The RoIHead takes 
 - box_roi_pool,
 - box_head,
@@ -252,7 +252,7 @@ The RoIHead takes
 
 
 
-### [MaskRCNN](venv/Lib/site-packages/torchvision/models/detection/mask_rcnn.py)
+### [MaskRCNN](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/models/detection/mask_rcnn.py)
 init receives:
 - backbone (nn.Module)
 - mask_roi_pool = MultiScaleRoIAlign
@@ -267,3 +267,73 @@ THe FasterRCNN init takes backbone, transform parameters, RPN parameters and box
 The maskRCNN init takes backbone, transform parameters, RPN parameters, box parameters and Mask Parameters
 
 
+NOTE: you could also try conv3dNormActivation for early fusion.
+
+# Post RPN Fusion
+See mask_head in roi_heads.py, or class MaskRCNNHeads in mask_rcnn.py.
+If we pass per slice list of features and list of proposals instead of fused, we could implement some dynamic fusion here.
+
+### Option 1 [MaskRCNNHeads](emrmodel/mask_rcnn.py)
+
+
+        if self.mask_roi_pool is not None:
+            mask_features = self.mask_roi_pool(features, mask_proposals, image_shapes) # MultiScaleROIAlign - This takes the mask proposals and samples a 7*7 output from each feature map.
+            mask_features = self.mask_head(mask_features) # does 256 in_channel to 256 out_channel Sequential Convs on the 256 channel 7*7 features
+            mask_logits = self.mask_predictor(mask_features) # funnels 256 channels into num_classes
+            
+expects, in_channels = backbone.out_channels = 256
+nn.Sequential with 4 blocks, each a conv2d with in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1, dilation=1
+
+o = ((i + 2p - d(k-1) - 1) / s) + 1
+o = (256 +2 - 2 - 1) / 1 +1 = 256
+
+so i = o
+
+we could here use: [conv3dNormActivation](/home/rohan/.pyenv/versions/venv/lib/python3.11/site-packages/torchvision/ops/misc.py)
+Conv3d, remember that your input tensor must have 5 dimensions:$$(\text{Batch}, \text{Channels}, \text{Depth/Time}, \text{Height}, \text{Width})$$
+
+
+matched_idxs is a list of tensors. Each tensor corresponds to one image in a batch and contains integer indices that map each proposal (region of interest) to the best-matching ground-truth bounding box from the dataset targets.
+FOR NOW just use only the center slice matched_idxs
+
+
+
+
+## THings to do after PostRPNFusion:
+1. Try other datasets.
+
+## Things to think about
+1. #### targets
+During forward pass you are always passing the center slice as the target. Now consider the RPN, where anchors are matched to the target. The loss is calculated by comparing the target with the proposals which are created by looking at the feature maps of the slice.
+This begs the question, what when the cells shift. Then you are trying to compare with the wrong target boxes. 
+This leaves us with two options
+  a. Pass the correct target for each slice. This means rewrite the emrDataLoader, datasetGenerator, emrDataset, and the forward pass the generalized_rcnn. Too much work ,maybe for later.
+  b. Assume that the boxes are not shifting that much and use the fused feature maps from early fusion. But that means u would be using the same feature maps, it doesnt make sense to pass it 3 times then. Okay, if a proposal belongs to a neighbour slice and does not belong in the target, then it will give a high loss and confuse the model, because in the center slice the same behaviour gave a lower loss. But since there are multiple neighbouring slices, atleast for this dataset where the anisotropy is low, the target should belong in majority of the slices. 
+  Would it benefit to scale the losses then? i.e., an incorrect classification in the center slice should be penalized, but in the neighbouring slices the loss could be scaled down by a factor of how far it is from the center slice. 
+  THis might be a lazy fix , if at all it works, as it may not help when anisotropy is high.
+  Can this be interpreted as a case of noisy datalabels. If yes then how could I modify my training to handle this?
+
+2. #### Masked training?
+  SINce we already have the targets for each slice, What if we included the target of the neighbour slices as well? THne instead of just predicting the center slice masks, we could mask random targets, and use transformer like training to reproduce the masked target. THen at inference some way of doing this without having the target masks at all.?
+
+3. #### earlyMLPFusion slice weight patterns - possible bugs:
+For the Slice Squeeze and Excite Experiments I am observing a pattern. IN this experiment I use global slice fusion, i.e. take mean across H, W out of [B, S, C, H, W] to get [B, S, C] and pass that to an MLP to get logits and then add static_bias  which look like a gaussian, assigning highest weight to the center slice, and then taking softmax to get per slice_weights. I observe that always, the last slice is weighted highest. For eg., in the 3 slice case I observed the mean of the final slice weights when recorded for the test set, as [0.15, 0.38, 0.47]. FOr the 7 slice case I observe:
+0.12048158 0.011455724
+
+0.10890814 0.007848853
+
+0.09320539 0.00485457
+
+0.16590582 0.0061298353
+
+0.101940885 0.003744808
+
+0.15724547 0.0074364166
+
+0.25231272 0.016438028
+
+This seems like a pattern now. What could be the reason the last slice is always weighted higher.
+
+These are observations for when the static_bias is added after the logits as a free variable. However when it is not added the each of slice_weights just take 1/num_slices value, causing slice averaging as the fusion strategy.
+
+An point of failure is seen from the observation that, when I printed out these weights, these are hardly dynamic. In the sense it is learning it as a rule these slice weights. When I am passing the first slice of the volume, I have to pad it with a zero slice. HOwever, even in this case are the slice weights not drasatically different than when the slice is available. ALso when observing the slice weights during the pixelwiseSliceSEFusion if I plot the slice weights when target is the first slice, then it slice -1 is a 0 slice but it is not seen so in when the slice_wights are plotted (here the slice weights are (S,H,W)), infact the cells acan be seen in the features maps of the slice -1. - What is causing this..??

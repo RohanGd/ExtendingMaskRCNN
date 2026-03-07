@@ -30,6 +30,7 @@ class ModelBuilder:
         early_mlp_fusion = self.cfg.get("MODEL", "early_mlp_fusion", "None")
         early_mlp_reduction = self.cfg.get_int("MODEL", "early_mlp_reduction", 16)
         early_mlp_bias = self.cfg.get("MODEL", "early_mlp_bias", "None")
+        roi_heads_fusion = self.cfg.get_bool("MODEL", "roi_heads_fusion", False)
 
 
         model_params = {
@@ -52,7 +53,8 @@ class ModelBuilder:
             'rpn_positive_fraction': rpn_positive_fraction,
             'early_mlp_fusion': early_mlp_fusion,
             'early_mlp_reduction': early_mlp_reduction,
-            'early_mlp_bias': early_mlp_bias
+            'early_mlp_bias': early_mlp_bias,
+            'roi_heads_fusion': roi_heads_fusion
         }
         
         model = ExtendedMaskRCNN(**model_params)

@@ -265,13 +265,13 @@ class MaskRCNNHeads(nn.Sequential):
         next_feature = in_channels
         for layer_features in layers:
             blocks.append(
-                misc_nn_ops.Conv2dNormActivation(
+                misc_nn_ops.Conv3dNormActivation(
                     next_feature,
                     layer_features,
-                    kernel_size=3,
+                    kernel_size=[3, 3, 3],
                     stride=1,
-                    padding=dilation,
-                    dilation=dilation,
+                    padding=(1, dilation, dilation),
+                    dilation=(1, dilation, dilation),
                     norm_layer=norm_layer,
                 )
             )

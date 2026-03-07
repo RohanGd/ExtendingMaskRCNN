@@ -5,7 +5,7 @@ from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
 # from torchvision.models.detection.rpn import RegionProposalNetwork, RPNHead
 from emrmodel.rpn import RegionProposalNetwork, RPNHead
-from torchvision.models.detection.roi_heads import RoIHeads
+from emrmodel.roi_heads import RoIHeads
 import torch.nn.functional as F
 from torchvision.ops import misc as misc_nn_ops
 from typing import Callable, List, Optional, Tuple
