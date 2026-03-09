@@ -522,7 +522,8 @@ class RoIHeads(nn.Module):
         keypoint_roi_pool=None,
         keypoint_head=None,
         keypoint_predictor=None,
-        mask_features_fusion="only_center"
+        mask_features_fusion="only_center",
+        num_slices=3
     ):
         super().__init__()
 
@@ -552,7 +553,7 @@ class RoIHeads(nn.Module):
         self.keypoint_head = keypoint_head
         self.keypoint_predictor = keypoint_predictor
 
-        self.mask_features_fusion = get_mask_features_fusion(mask_features_fusion)
+        self.mask_features_fusion = get_mask_features_fusion(mask_features_fusion, num_slices)
 
     def has_mask(self):
         if self.mask_roi_pool is None:

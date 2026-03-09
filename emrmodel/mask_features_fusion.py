@@ -19,11 +19,12 @@ class ChooseCenterMaskFeatureFusion(nn.Module):
         return mask_features[:, :, center_slice, :, :]
 
 class Conv3dMaskFeatureFusion(nn.Module):
-    def __init__(self):
+    def __init__(self, num_slices):
         super().__init__()
-        self.fusion = nn.Conv3d(in_channels=256, out_channels=256, kernel_size=(3, 1, 1))
+        self.fusion = nn.Conv3d(in_channels=256, out_channels=256, kernel_size=(num_slices, 1, 1), padding=0)
 
     def forward(self, mask_features):
+        # N, C, S, H, W
         fused = self.fusion(mask_features)
         return fused.squeeze(2)
     
@@ -54,13 +55,12 @@ class SEMaskFeatureFusion(nn.Module):
 
 
 
-def get_mask_features_fusion(mask_features_fusion:str="only_center"):
-    print("CALLED", mask_features_fusion)
+def get_mask_features_fusion(mask_features_fusion:str="only_center", num_slices=3):
     if mask_features_fusion == "mean":
         return MeanMaskFeaturesFusion()
     if mask_features_fusion == "only_center":
         return ChooseCenterMaskFeatureFusion()
     if mask_features_fusion == "conv3d":
-        return Conv3dMaskFeatureFusion()
+        return Conv3dMaskFeatureFusion(num_slices)
     if mask_features_fusion == "SE":
         return SEMaskFeatureFusion()
