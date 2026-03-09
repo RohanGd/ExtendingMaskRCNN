@@ -251,6 +251,7 @@ class FasterRCNN(GeneralizedRCNN):
             box_score_thresh,
             box_nms_thresh,
             box_detections_per_img,
+            mask_features_fusion=self.roi_heads_fusion
         )
 
         if image_mean is None:

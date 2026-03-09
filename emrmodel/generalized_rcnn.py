@@ -119,17 +119,9 @@ class GeneralizedRCNN(nn.Module):
                 features.update({ key: squeeze_n_excite_feature })
 
         if self.roi_heads_fusion:
-            #TODO: Implement roi_heads_fusion
-            per_slice_proposals = list()
-            for f_id, slice_feature in enumerate(features):
-                proposals, proposal_losses = self.rpn(images, slice_feature, targets)
-                if f_id != (self.num_slices_per_batch // 2): # if not center slice
-                    for k, v in proposal_losses.items():
-                        proposal_losses[k] = v * (1 - abs((self.num_slices_per_batch // 2) - f_id) / self.num_slices_per_batch)
-                        # de-scaling losses based on how far they are from the center slice to encode shift.
-                per_slice_proposals.append(proposals)
+            proposals, proposal_losses = self.rpn(images, features[self.num_slices_per_batch // 2], targets)
             
-            detections, detector_losses = self.roi_heads(features, per_slice_proposals, images.image_sizes, targets)
+            detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
             detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)  # type: ignore[operator]
             pass
         else:

@@ -296,8 +296,14 @@ Conv3d, remember that your input tensor must have 5 dimensions:$$(\text{Batch}, 
 matched_idxs is a list of tensors. Each tensor corresponds to one image in a batch and contains integer indices that map each proposal (region of interest) to the best-matching ground-truth bounding box from the dataset targets.
 FOR NOW just use only the center slice matched_idxs
 
+IN option 1, I am computing the box_regression for each slice, then box_loss_regression is computed by comparing with target["boxes"] of the center slice only. So losses are also svaled based on how far the slice is from the center slice, the boxes predicted in the neighbouring slices are not 
+
+### Option 2
+Do we need to pass all slices through rpn to get proposals for each slice? Or proposals only from the center slice can be used?
 
 
+### Option 3
+For proposals from each slice we can compute a pairwise IoU to have a one to -one matching with neighbouring proposals. Then we do a fusion.
 
 ## THings to do after PostRPNFusion:
 1. Try other datasets.

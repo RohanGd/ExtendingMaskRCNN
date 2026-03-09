@@ -7,6 +7,7 @@ from torch import nn
 from torchvision.ops import boxes as box_ops, roi_align
 
 from torchvision.models.detection import _utils as det_utils
+from emrmodel.mask_features_fusion import *
 
 
 def fastrcnn_loss(
@@ -83,7 +84,7 @@ def maskrcnn_inference(x: torch.Tensor, labels: list[torch.Tensor]) -> list[torc
 
 
 def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
-    # type: (Tensor, Tensor, Tensor, int) -> Tensor
+    # type: (torch.Tensor, torch.Tensor, torch.Tensor, int) -> torch.Tensor
     """
     Given segmentation masks and the bounding boxes corresponding
     to the location of the masks in the image, this function
@@ -98,7 +99,7 @@ def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
 
 
 def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs):
-    # type: (Tensor, list[Tensor], list[Tensor], list[Tensor], list[Tensor]) -> Tensor
+    # type: (torch.Tensor, list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]) -> torch.Tensor
     """
     Args:
         proposals (list[BoxList])
@@ -130,7 +131,7 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
 
 
 def keypoints_to_heatmap(keypoints, rois, heatmap_size):
-    # type: (Tensor, Tensor, int) -> tuple[Tensor, Tensor]
+    # type: (torch.Tensor, torch.Tensor, int) -> tuple[torch.Tensor, torch.Tensor]
     offset_x = rois[:, 0]
     offset_y = rois[:, 1]
     scale_x = heatmap_size / (rois[:, 2] - rois[:, 0])
@@ -299,7 +300,7 @@ def heatmaps_to_keypoints(maps, rois):
 
 
 def keypointrcnn_loss(keypoint_logits, proposals, gt_keypoints, keypoint_matched_idxs):
-    # type: (Tensor, list[Tensor], list[Tensor], list[Tensor]) -> Tensor
+    # type: (torch.Tensor, list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]) -> torch.Tensor
     N, K, H, W = keypoint_logits.shape
     if H != W:
         raise ValueError(
@@ -330,7 +331,7 @@ def keypointrcnn_loss(keypoint_logits, proposals, gt_keypoints, keypoint_matched
 
 
 def keypointrcnn_inference(x, boxes):
-    # type: (Tensor, list[Tensor]) -> tuple[list[Tensor], list[Tensor]]
+    # type: (torch.Tensor, list[torch.Tensor]) -> tuple[list[torch.Tensor], list[torch.Tensor]]
     kp_probs = []
     kp_scores = []
 
@@ -346,7 +347,7 @@ def keypointrcnn_inference(x, boxes):
 
 
 def _onnx_expand_boxes(boxes, scale):
-    # type: (Tensor, float) -> Tensor
+    # type: (torch.Tensor, float) -> torch.Tensor
     w_half = (boxes[:, 2] - boxes[:, 0]) * 0.5
     h_half = (boxes[:, 3] - boxes[:, 1]) * 0.5
     x_c = (boxes[:, 2] + boxes[:, 0]) * 0.5
@@ -367,7 +368,7 @@ def _onnx_expand_boxes(boxes, scale):
 # but are kept here for the moment while we need them
 # temporarily for paste_mask_in_image
 def expand_boxes(boxes, scale):
-    # type: (Tensor, float) -> Tensor
+    # type: (torch.Tensor, float) -> torch.Tensor
     if torchvision._is_tracing():
         return _onnx_expand_boxes(boxes, scale)
     w_half = (boxes[:, 2] - boxes[:, 0]) * 0.5
@@ -393,7 +394,7 @@ def expand_masks_tracing_scale(M, padding):
 
 
 def expand_masks(mask, padding):
-    # type: (Tensor, int) -> tuple[Tensor, float]
+    # type: (torch.Tensor, int) -> tuple[torch.Tensor, float]
     M = mask.shape[-1]
     if torch._C._get_tracing_state():  # could not import is_tracing(), not sure why
         scale = expand_masks_tracing_scale(M, padding)
@@ -404,7 +405,7 @@ def expand_masks(mask, padding):
 
 
 def paste_mask_in_image(mask, box, im_h, im_w):
-    # type: (Tensor, Tensor, int, int) -> Tensor
+    # type: (torch.Tensor, torch.Tensor, int, int) -> torch.Tensor
     TO_REMOVE = 1
     w = int(box[2] - box[0] + TO_REMOVE)
     h = int(box[3] - box[1] + TO_REMOVE)
@@ -475,7 +476,7 @@ def _onnx_paste_masks_in_image_loop(masks, boxes, im_h, im_w):
 
 
 def paste_masks_in_image(masks, boxes, img_shape, padding=1):
-    # type: (Tensor, Tensor, tuple[int, int], int) -> Tensor
+    # type: (torch.Tensor, torch.Tensor, tuple[int, int], int) -> torch.Tensor
     masks, scale = expand_masks(masks, padding=padding)
     boxes = expand_boxes(boxes, scale).to(dtype=torch.int64)
     im_h, im_w = img_shape
@@ -521,6 +522,7 @@ class RoIHeads(nn.Module):
         keypoint_roi_pool=None,
         keypoint_head=None,
         keypoint_predictor=None,
+        mask_features_fusion="only_center"
     ):
         super().__init__()
 
@@ -550,6 +552,8 @@ class RoIHeads(nn.Module):
         self.keypoint_head = keypoint_head
         self.keypoint_predictor = keypoint_predictor
 
+        self.mask_features_fusion = get_mask_features_fusion(mask_features_fusion)
+
     def has_mask(self):
         if self.mask_roi_pool is None:
             return False
@@ -569,7 +573,7 @@ class RoIHeads(nn.Module):
         return True
 
     def assign_targets_to_proposals(self, proposals, gt_boxes, gt_labels):
-        # type: (list[Tensor], list[Tensor], list[Tensor]) -> tuple[list[Tensor], list[Tensor]]
+        # type: (list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]) -> tuple[list[torch.Tensor], list[torch.Tensor]]
         matched_idxs = []
         labels = []
         for proposals_in_image, gt_boxes_in_image, gt_labels_in_image in zip(proposals, gt_boxes, gt_labels):
@@ -604,7 +608,7 @@ class RoIHeads(nn.Module):
         return matched_idxs, labels
 
     def subsample(self, labels):
-        # type: (list[Tensor]) -> list[Tensor]
+        # type: (list[torch.Tensor]) -> list[torch.Tensor]
         sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
         sampled_inds = []
         for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
@@ -613,13 +617,13 @@ class RoIHeads(nn.Module):
         return sampled_inds
 
     def add_gt_proposals(self, proposals, gt_boxes):
-        # type: (list[Tensor], list[Tensor]) -> list[Tensor]
+        # type: (list[torch.Tensor], list[torch.Tensor]) -> list[torch.Tensor]
         proposals = [torch.cat((proposal, gt_box)) for proposal, gt_box in zip(proposals, gt_boxes)]
 
         return proposals
 
     def check_targets(self, targets):
-        # type: (Optional[list[dict[str, Tensor]]]) -> None
+        # type: (Optional[list[dict[str, torch.Tensor]]]) -> None
         if targets is None:
             raise ValueError("targets should not be None")
         if not all(["boxes" in t for t in targets]):
@@ -632,10 +636,10 @@ class RoIHeads(nn.Module):
 
     def select_training_samples(
         self,
-        proposals,  # type: list[Tensor]
-        targets,  # type: Optional[list[dict[str, Tensor]]]
+        proposals,  # type: list[torch.Tensor]
+        targets,  # type: Optional[list[dict[str, torch.Tensor]]]
     ):
-        # type: (...) -> tuple[list[Tensor], list[Tensor], list[Tensor], list[Tensor]]
+        # type: (...) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]
         self.check_targets(targets)
         if targets is None:
             raise ValueError("targets should not be None")
@@ -670,12 +674,12 @@ class RoIHeads(nn.Module):
 
     def postprocess_detections(
         self,
-        class_logits,  # type: Tensor
-        box_regression,  # type: Tensor
-        proposals,  # type: list[Tensor]
+        class_logits,  # type: torch.Tensor
+        box_regression,  # type: torch.Tensor
+        proposals,  # type: list[torch.Tensor]
         image_shapes,  # type: list[tuple[int, int]]
     ):
-        # type: (...) -> tuple[list[Tensor], list[Tensor], list[Tensor]]
+        # type: (...) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]
         device = class_logits.device
         num_classes = class_logits.shape[-1]
 
@@ -730,7 +734,7 @@ class RoIHeads(nn.Module):
     def forward(
         self,
         features: list[dict[str, torch.Tensor]],
-        proposals: list[list[torch.Tensor]],
+        proposals: list[torch.Tensor],
         image_shapes: list[tuple[int, int]],
         targets: Optional[list[dict[str, torch.Tensor]]] = None,
     ) -> tuple[list[dict[str, torch.Tensor]], dict[str, torch.Tensor]]:
@@ -755,99 +759,66 @@ class RoIHeads(nn.Module):
 
         num_slices = len(features)
         if self.training:
-            proposals_list = list()
-            labels_list = list()
-            regression_targets_list = list()
-            matched_idxs_list = list()
-            for proposal in proposals:
-                proposal, matched_idxs, labels, regression_targets = self.select_training_samples(proposal, targets)
-                proposals_list.append(proposal)
-                matched_idxs_list.append(matched_idxs)
-                labels_list.append(labels)
-                regression_targets_list.append(regression_targets)
-
+            proposals, matched_idxs, labels, regression_targets = self.select_training_samples(proposals, targets)
                 
-            assert(len(proposals_list) == len(features)), "Mismatch in number of slice features and slice proposals."
         else:
-            proposals_list = proposals
             labels = None
             regression_targets = None
             matched_idxs = None
 
-        class_logits_list, box_regression_list = list(), list()
-        for proposal, feature in zip(proposals_list, features):
-            box_features = self.box_roi_pool(feature, proposal, image_shapes)
-            box_features = self.box_head(box_features)
-            class_logits, box_regression = self.box_predictor(box_features)
-            class_logits_list.append(class_logits)
-            box_regression_list.append(box_regression)
+        box_features = self.box_roi_pool(features[num_slices//2], proposals, image_shapes) # N, C, 7, 7. WHere N is sum(proposals across each batch dim)
+        box_features = self.box_head(box_features) # N, 1024
+        class_logits, box_regression = self.box_predictor(box_features)
 
-        result: list[list[dict[str, torch.Tensor]]] = []
+        result: list[dict[str, torch.Tensor]] = []
         losses = {}
         if self.training:
-            device = class_logits_list[0].device
-            loss_classifier_sum, loss_box_reg_sum = torch.tensor(0.0, device=device, dtype=torch.float32), torch.tensor(0.0, device=device, dtype=torch.float32)
-            for s_id, (s_class_logits, s_box_regression, s_labels, regression_targets) in enumerate(zip(class_logits_list, box_regression_list, labels_list, regression_targets_list)):
-                loss_classifier, loss_box_reg = fastrcnn_loss(s_class_logits, s_box_regression, s_labels, regression_targets)
-                
-                base_weight = 0.66 
-                weight = base_weight ** abs((num_slices//2) - s_id)
-                loss_classifier_sum = loss_classifier_sum + (loss_classifier * (weight))
-                loss_box_reg_sum = loss_box_reg_sum + (loss_box_reg * weight)
-            loss_box_reg_sum /= ((num_slices +0.5) * base_weight)
-            losses = {"loss_classifier": loss_classifier_sum, "loss_box_reg": loss_box_reg_sum}
+            loss_classifier, loss_box_reg = fastrcnn_loss(class_logits, box_regression, labels, regression_targets)
+            losses = {"loss_classifier": loss_classifier, "loss_box_reg": loss_box_reg}
         else:
-            for s_id, (s_class_logits, s_box_regression, proposal) in enumerate(zip(class_logits_list, box_regression_list, proposals_list)):
-                slice_result: list[dict[str, torch.Tensor]] = []
-                boxes, scores, labels = self.postprocess_detections(s_class_logits, s_box_regression, proposal, image_shapes)
-                num_images = len(boxes)
-                for i in range(num_images):
-                    slice_result.append(
-                        {
-                            "boxes": boxes[i],
-                            "labels": labels[i],
-                            "scores": scores[i],
-                        }
-                    )
-                result.append(slice_result)
+            boxes, scores, labels = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
+            num_images = len(boxes)
+            for i in range(num_images):
+                result.append(
+                    {
+                        "boxes": boxes[i],
+                        "labels": labels[i],
+                        "scores": scores[i],
+                    }
+                )
 
         if self.has_mask():
             mask_features_list = []
             pos_matched_idxs = []
             if self.training:
-                if matched_idxs is None:
-                    raise ValueError("if training, matched_idxs should not be None")
-                
                 # during training, only focus on positive boxes
-                center_slice_proposals = proposals_list[num_slices//2]
-                center_slice_matched_idxs = matched_idxs_list[num_slices//2]
-                center_slice_labels = labels_list[num_slices//2]
-                num_images = len(center_slice_proposals)
+                num_images = len(proposals)
                 mask_proposals = []
                 for img_id in range(num_images):
-                    pos = torch.where(center_slice_labels[img_id] > 0)[0]
-                    mask_proposals.append(center_slice_proposals[img_id][pos])
-                    pos_matched_idxs.append(center_slice_matched_idxs[img_id][pos])
+                    pos = torch.where(labels[img_id] > 0)[0]
+                    mask_proposals.append(proposals[img_id][pos])
+                    pos_matched_idxs.append(matched_idxs[img_id][pos])
 
             else:
                 pos_matched_idxs = None
-                mask_proposals = [p["boxes"] for p in result[num_slices//2]]
+                mask_proposals = [p["boxes"] for p in result]
             
             for s_id, feature in enumerate(features):
                 if self.mask_roi_pool is not None:
                     mask_features = self.mask_roi_pool(feature, mask_proposals, image_shapes) # MultiScaleROIAlign - This takes the mask proposals and samples a 7*7 output from each feature map.
                     mask_features_list.append(mask_features)
-                    # print(mask_features.shape, len(mask_proposals), mask_proposals[0].shape, feature.keys(), image_shapes)
                 else:
                     raise Exception("Expected mask_roi_pool to be not None")
                 
             # convert to Tensor
             # pos_matched_idx - do something about it - for now using center slice pos_matched_idxs
-            # orignal expects B*256*7*7 
-            # Conv3dNormActivation would expect: B*C*num_Slices*h*w
+            # orignal expects num_proposals*256*7*7 
+            # Conv3dNormActivation would expect: num_proposals*C*num_Slices*h*w
             mask_features = torch.stack(mask_features_list, dim=2)
             mask_features = self.mask_head(mask_features) # does 256 in_channel to 256 out_channel Sequential Convs on the 256 channel 7*7 features
-            mask_features = torch.mean(mask_features, dim=2)
+            # (num_proposals_across_batch, 256, S, H, W)
+            # print(mask_features.shape)
+            mask_features = self.mask_features_fusion(mask_features)
             mask_logits = self.mask_predictor(mask_features) # funnels 256 channels into num_classes
 
             loss_mask = {}
@@ -860,9 +831,9 @@ class RoIHeads(nn.Module):
                 rcnn_loss_mask = maskrcnn_loss(mask_logits, mask_proposals, gt_masks, gt_labels, pos_matched_idxs)
                 loss_mask = {"loss_mask": rcnn_loss_mask}
             else:
-                labels = [r["labels"] for r in result[num_slices//2]]
+                labels = [r["labels"] for r in result]
                 masks_probs = maskrcnn_inference(mask_logits, labels)
-                for mask_prob, r in zip(masks_probs, result[num_slices//2]):
+                for mask_prob, r in zip(masks_probs, result):
                     r["masks"] = mask_prob
 
             losses.update(loss_mask)
@@ -916,6 +887,5 @@ class RoIHeads(nn.Module):
                     r["keypoints_scores"] = kps
             losses.update(loss_keypoint)
 
-        if self.training:
-            return {}, losses
-        return result[num_slices//2], losses
+        return result, losses
+    

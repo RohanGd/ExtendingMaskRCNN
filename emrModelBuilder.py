@@ -30,7 +30,7 @@ class ModelBuilder:
         early_mlp_fusion = self.cfg.get("MODEL", "early_mlp_fusion", "None")
         early_mlp_reduction = self.cfg.get_int("MODEL", "early_mlp_reduction", 16)
         early_mlp_bias = self.cfg.get("MODEL", "early_mlp_bias", "None")
-        roi_heads_fusion = self.cfg.get_bool("MODEL", "roi_heads_fusion", False)
+        roi_heads_fusion = self.cfg.get("MODEL", "roi_heads_fusion", None)
 
 
         model_params = {
