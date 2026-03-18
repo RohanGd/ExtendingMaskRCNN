@@ -8,13 +8,14 @@ from tqdm import tqdm
 from emrConfigManager import DATAPATH
 import nrrd
 
-ANISOTROPY = "Low"
-ANISOTROPY = "High"
+# ANISOTROPY = "Low"
+# ANISOTROPY = "High"
+ANISOTROPY = ""
 
 def main():
     # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-CHO"
-    # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-SIM+"
-    dataset_path = f"{DATAPATH}/data/12spheroids"
+    dataset_path = f"{DATAPATH}/data/Fluo-N3DH-SIM+"
+    # dataset_path = f"{DATAPATH}/data/12spheroids"
 
 
     rusure = input(f"WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\nFor dataset: {dataset_path}_{ANISOTROPY}\n Enter Y/N:    ")
@@ -113,8 +114,8 @@ def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.
     new_indices = list(range(n))
     shuffle(new_indices)
     train_indices = new_indices[0 : int(n*split[0])]
-    val_indices = new_indices[int(n*split[0]): int(n*(split[0] + split[1]))]
-    test_indices = new_indices[int(n*(split[0] + split[1])) : ]
+    test_indices = new_indices[int(n*split[0]): int(n*(split[0] + split[1]))]
+    val_indices = new_indices[int(n*(split[0] + split[1])) : ]
 
     def pluck(indices):
         target_paths = list()
@@ -132,7 +133,7 @@ def create_dataset(file_paths:str, save_dir:str, type_:str):
         make(path_pair, idx, save_dir, type_)
 
 
-def resize_with_padding(img, target_size=256, is_mask=False):
+def resize_with_padding(img, target_size=512, is_mask=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     num_slices, height, width = img.shape
 
@@ -238,7 +239,6 @@ def get_target_from_mask(mask, image_id):
 def make(path_pair, volume_idx, save_dir, type_):
     img_path, mask_path = path_pair
     if "12spheroids" in save_dir:
-        print(img_path)
         _img, _ = nrrd.read(img_path)
         _mask, _ = nrrd.read(mask_path)
         _img = _img.transpose(2, 0, 1)
