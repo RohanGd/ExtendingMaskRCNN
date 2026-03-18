@@ -162,9 +162,10 @@ def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir):
             if gt_name.startswith(T + "_"):
                 gt_path = os.path.join(target_masks_dir, gt_name)
                 data = np.load(gt_path, allow_pickle=True)
-                gt_slices.append(np.any(data["masks"], axis=0))
+                gt_slices.append(data["orignal_mask"])
 
-        gt_3d = label(np.stack(gt_slices, axis=0), connectivity=1)
+        # gt_3d = label(np.stack(gt_slices, axis=0), connectivity=1)
+        gt_3d = np.stack(gt_slices)
 
         tifffile.imwrite(
             os.path.join(gt_out, f"man_seg{T}.tif"),

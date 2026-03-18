@@ -201,7 +201,8 @@ def get_target_from_mask(mask, image_id):
         "masks": masks,
         "image_id": torch.tensor([image_id]),
         "area": area,
-        "iscrowd": iscrowd
+        "iscrowd": iscrowd,
+        "orignal_mask": mask
     }
     
     
@@ -252,7 +253,8 @@ def save_target(target, volume_idx, slice_idx, type_, save_dir):
         'masks': target['masks'].cpu().numpy(),
         'image_id': target['image_id'].cpu().numpy(),
         'area': target['area'].cpu().numpy(),
-        'iscrowd': target['iscrowd'].cpu().numpy()
+        'iscrowd': target['iscrowd'].cpu().numpy(),
+        'orignal_mask': target['orignal_mask'].cpu().numpy()
     }
     np.savez_compressed(filepath, **target)
 
