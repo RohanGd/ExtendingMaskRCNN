@@ -6,12 +6,18 @@ import tifffile as tiff
 import torch.nn.functional as F
 from tqdm import tqdm
 from emrConfigManager import DATAPATH
+import nrrd
+
+ANISOTROPY = "Low"
+ANISOTROPY = "High"
 
 def main():
-    dataset_path = f"{DATAPATH}/data/Fluo-N3DH-CHO"
+    # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-CHO"
     # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-SIM+"
+    dataset_path = f"{DATAPATH}/data/12spheroids"
 
-    rusure = input(f"WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\nFor dataset: {dataset_path}\n Enter Y/N:    ")
+
+    rusure = input(f"WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\nFor dataset: {dataset_path}_{ANISOTROPY}\n Enter Y/N:    ")
     if rusure != "Y":
         exit()
 
@@ -33,6 +39,8 @@ def main():
 
 def create_new_dir_struct(dataset_path:str):
     new_path = f"{DATAPATH}/datasets/" + dataset_path.split("/")[-1]
+    if "12spheroids" in dataset_path:
+        new_path = f"{DATAPATH}/datasets/" + dataset_path.split("/")[-1] + "_" + ANISOTROPY
     if not os.path.exists(new_path):
         subdirs = ["train/imgs", "train/masks", "test/imgs", "test/masks", "val/imgs", "val/masks"]
         for subdir in subdirs:
@@ -53,16 +61,34 @@ def get_file_paths(dataset_path:str, type:str):
         type (str): "imgs" or "masks"
     """
     paths = list()
-    for fol_name in ["01", "02"]:
+
+    if "12spheroids" in dataset_path:
         if type == "imgs":
-            fol_paths = [os.path.join(dataset_path, fol_name, x) for x in os.listdir(os.path.join(dataset_path, fol_name))]
+            if ANISOTROPY == "High": 
+                endchars = "_expanded_3.nrrd"
+            elif ANISOTROPY == "Low":
+                endchars = "_spheroid.nrrd"
+            print("Creating 12spheroids with ANISOTROPY - " + ANISOTROPY, endchars)
+            paths = [os.path.join(dataset_path, "spheroids", x) for x in os.listdir(os.path.join(dataset_path, "spheroids")) if x.endswith(endchars)]
         elif type == "masks":
-            man_seg_dirpath = "_GT/SEG" if "SIM+" in dataset_path else "_ST/SEG"
-            fol_paths =[os.path.join(dataset_path, fol_name+man_seg_dirpath, x) for x in os.listdir(os.path.join(dataset_path,  fol_name+man_seg_dirpath))]
-        else:
-            raise 'Specify type either "imgs" or "masks".'
-        paths.extend(fol_paths)
-    return sorted(paths)
+            if ANISOTROPY == "High": 
+                endchars = "_expanded_3_DT.nrrd"
+            elif ANISOTROPY == "Low":
+                endchars = "_GT.nrrd"
+            paths = [os.path.join(dataset_path, "GT", x) for x in os.listdir(os.path.join(dataset_path, "GT")) if x.endswith(endchars)]
+        return sorted(paths)
+    
+    else:
+        for fol_name in ["01", "02"]:
+            if type == "imgs":
+                fol_paths = [os.path.join(dataset_path, fol_name, x) for x in os.listdir(os.path.join(dataset_path, fol_name))]
+            elif type == "masks":
+                man_seg_dirpath = "_GT/SEG" if "SIM+" in dataset_path else "_ST/SEG"
+                fol_paths =[os.path.join(dataset_path, fol_name+man_seg_dirpath, x) for x in os.listdir(os.path.join(dataset_path,  fol_name+man_seg_dirpath))]
+            else:
+                raise 'Specify type either "imgs" or "masks".'
+            paths.extend(fol_paths)
+        return sorted(paths)
 
 
 def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.15, 0.15]):
@@ -87,8 +113,8 @@ def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.
     new_indices = list(range(n))
     shuffle(new_indices)
     train_indices = new_indices[0 : int(n*split[0])]
-    test_indices = new_indices[int(n*split[0]): int(n*(split[0] + split[1]))]
-    val_indices = new_indices[int(n*(split[0] + split[1])) : ]
+    val_indices = new_indices[int(n*split[0]): int(n*(split[0] + split[1]))]
+    test_indices = new_indices[int(n*(split[0] + split[1])) : ]
 
     def pluck(indices):
         target_paths = list()
@@ -106,7 +132,7 @@ def create_dataset(file_paths:str, save_dir:str, type_:str):
         make(path_pair, idx, save_dir, type_)
 
 
-def resize_with_padding(img, target_size=512, is_mask=False):
+def resize_with_padding(img, target_size=256, is_mask=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     num_slices, height, width = img.shape
 
@@ -211,8 +237,29 @@ def get_target_from_mask(mask, image_id):
 
 def make(path_pair, volume_idx, save_dir, type_):
     img_path, mask_path = path_pair
-    _img = tiff.imread(img_path)
-    _mask = tiff.imread(mask_path)
+    if "12spheroids" in save_dir:
+        print(img_path)
+        _img, _ = nrrd.read(img_path)
+        _mask, _ = nrrd.read(mask_path)
+        _img = _img.transpose(2, 0, 1)
+        _mask = _mask.transpose(2, 0, 1)
+        # from utils.napariView import visualize
+        # visualize(_mask)        
+        
+        if ANISOTROPY == "High":
+            num_padding = 190 - _img.shape[0]
+        elif ANISOTROPY == "Low":
+            num_padding = 64 - _img.shape[0]
+        p_front = num_padding // 2
+        p_back = num_padding- p_front
+        _img = np.pad(_img, ((p_front, p_back), (0, 0), (0, 0)), mode='constant')
+        _mask = np.pad(_mask, ((p_front, p_back), (0, 0), (0, 0)), mode='constant')
+
+   
+    else:
+        _img = tiff.imread(img_path)
+        _mask = tiff.imread(mask_path)
+
     assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_path} and {mask_path}"
     _img = resize_with_padding(_img, is_mask=False)
     _mask = resize_with_padding(_mask, is_mask=True)
