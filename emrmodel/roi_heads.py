@@ -522,7 +522,7 @@ class RoIHeads(nn.Module):
         keypoint_roi_pool=None,
         keypoint_head=None,
         keypoint_predictor=None,
-        mask_features_fusion="only_center",
+        mask_features_fusion="only_center", # default only_center
         num_slices=3
     ):
         super().__init__()

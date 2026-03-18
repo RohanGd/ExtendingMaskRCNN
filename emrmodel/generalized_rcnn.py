@@ -101,7 +101,7 @@ class GeneralizedRCNN(nn.Module):
         
         per_slice_features = self.backbone(images.tensors) # OrderedDict('0': list[torch.Size([B, 256, 161, 163], ...)], '1': list[torch.Size([B, 256, 81, 82]), ...], '2': list[torch.Size([B, 256, 41, 41]), ...], '3': list[torch.Size([B, 256, 21, 21]) ...])
 
-        if self.roi_heads_fusion:
+        if self.roi_heads_fusion != "None":
             # TODO: arange features as list of OrderedDicts. Transform per_slice_features from OrderedDict(list(slices)) to list(OrderedDicts(Slice)) 
             features = list()
             for slice_id in range(self.num_slices_per_batch):
@@ -118,7 +118,7 @@ class GeneralizedRCNN(nn.Module):
                 squeeze_n_excite_feature = self.early_mlp_fusion_module(scale_feature, key) # torch.Size([B, 256, 161, 163], ...)
                 features.update({ key: squeeze_n_excite_feature })
 
-        if self.roi_heads_fusion:
+        if self.roi_heads_fusion != "None":
             proposals, proposal_losses = self.rpn(images, features[self.num_slices_per_batch // 2], targets)
             
             detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
