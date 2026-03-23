@@ -101,17 +101,36 @@ class GeneralizedRCNN(nn.Module):
         
         per_slice_features = self.backbone(images.tensors) # OrderedDict('0': list[torch.Size([B, 256, 161, 163], ...)], '1': list[torch.Size([B, 256, 81, 82]), ...], '2': list[torch.Size([B, 256, 41, 41]), ...], '3': list[torch.Size([B, 256, 21, 21]) ...])
 
-        features = OrderedDict()
-        for i, key in enumerate(per_slice_features.keys()):
-            scale_feature = per_slice_features[key] # eg.  list[torch.Size([B, 256, 161, 163], ...)]
-            squeeze_n_excite_feature = self.early_mlp_fusion_module(scale_feature, key) # torch.Size([B, 256, 161, 163], ...)
-            features.update({ key: squeeze_n_excite_feature })
+        if self.roi_heads_fusion != "None":
+            # TODO: arange features as list of OrderedDicts. Transform per_slice_features from OrderedDict(list(slices)) to list(OrderedDicts(Slice)) 
+            features = list()
+            for slice_id in range(self.num_slices_per_batch):
+                slice_features = OrderedDict()
+                for key in list(per_slice_features.keys()):
+                    scale_feature = per_slice_features[key][slice_id]
+                    slice_features.update({ key: scale_feature})
+                features.append(slice_features)
+            # end if
+        else:
+            features = OrderedDict()
+            for i, key in enumerate(per_slice_features.keys()):
+                scale_feature = per_slice_features[key] # eg.  list[torch.Size([B, 256, 161, 163], ...)]
+                squeeze_n_excite_feature = self.early_mlp_fusion_module(scale_feature, key) # torch.Size([B, 256, 161, 163], ...)
+                features.update({ key: squeeze_n_excite_feature })
+
+        if self.roi_heads_fusion != "None":
+            proposals, proposal_losses = self.rpn(images, features[self.num_slices_per_batch // 2], targets)
+            
+            detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
+            detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)  # type: ignore[operator]
+            pass
+        else:
+            if isinstance(features, torch.Tensor):
+                features = OrderedDict([("0", features)])
         
-        if isinstance(features, torch.Tensor):
-            features = OrderedDict([("0", features)])
-        proposals, proposal_losses = self.rpn(images, features, targets)
-        detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
-        detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)  # type: ignore[operator]
+            proposals, proposal_losses = self.rpn(images, features, targets)
+            detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
+            detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)  # type: ignore[operator]
 
         losses = {}
         losses.update(detector_losses)

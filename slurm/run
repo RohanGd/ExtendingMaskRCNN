@@ -40,26 +40,37 @@ srun \
 python3 training_loop.py config/early_mlp_experiments/slicesemlp_gaussianbias.ini
 
 
+
 srun \
+--partition=RTX3090 \
 --gpus=0 \
 --mem=32G \
 --time=00:15:00 \
 --container-image=/enroot/ubuntu+20.04.sqsh \
 --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
 --container-workdir="/home/gadgil/ExtendingMaskRCNN" \
-./SEGMeasure /netscratch/gadgil/Experiments/test/only_centerbias_n3_20260304_150527/ 01 4
+./SEGMeasure /netscratch/gadgil/Experiments/test/rpn_exps/roi_heads_fusion_loss_scaled_n7_20260309_195309 01 4
 
 
 Global SliceSE Fusion:
-    gaussian:
-        SEG measure: 0.784717 - n7 
-        SEG measure: 0.771461 - n5 
-        SEG measure: 0.774424 - n3 
-        SEG measure: 0.756690 - n1 
-    only_center: 
-        SEG measure: 0.772490 - n3
+    bias initialized as bell with peak at center:
+        SEG measure: 0.784717 - n7 - Mean3DSemanticIoU: 0.862219
+        SEG measure: 0.773597 - n5 - Mean3DSemanticIoU: 0.851696
+        SEG measure: 0.765811 - n3 - Mean3DSemanticIoU: 0.846444
+        SEG measure: 0.756690 - n1 - Mean3DSemanticIoU: 0.838881
+    bias initialized as only_center: 
+        SEG measure: 0.772490 - n3 - Mean3DSemanticIoU: 0.851070
 
+Naive:
+        SEG measure: 0.809746 - n7 - Mean3DSemanticIoU: 0.875920
+        SEG measure: 0.773163 - n5 - Mean3DSemanticIoU: 0.860458
+        SEG measure: 0.774216 - n3 - Mean3DSemanticIoU: 0.847041
+        SEG measure: 0.763930 - n1 - Mean3DSemanticIoU: 0.839050
 
+ROI_fusion:
+    MaskHeadconv3d:
+    SEG measure: 0.777432 - n3
+    SEG measure: 0.775589 - n5
+    SEG measure: 0.764084 - n7
 
-
-sbatch slurm/submit.sh
+sbatch slurm/submit.shonfig/early_mlp_experiments/slicesemlp_gaussianbias.ini

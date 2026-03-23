@@ -5,6 +5,7 @@ from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
 # from torchvision.models.detection.rpn import RegionProposalNetwork, RPNHead
 from emrmodel.rpn import RegionProposalNetwork, RPNHead
+from emrmodel.roi_heads import ROIheadsFusion
 from torchvision.models.detection.roi_heads import RoIHeads
 import torch.nn.functional as F
 from torchvision.ops import misc as misc_nn_ops
@@ -238,7 +239,8 @@ class FasterRCNN(GeneralizedRCNN):
             representation_size = 1024
             box_predictor = FastRCNNPredictor(representation_size, num_classes)
 
-        roi_heads = RoIHeads(
+        if self.roi_heads_fusion != "None":
+            roi_heads = ROIheadsFusion(
             # Box
             box_roi_pool,
             box_head,
@@ -251,7 +253,24 @@ class FasterRCNN(GeneralizedRCNN):
             box_score_thresh,
             box_nms_thresh,
             box_detections_per_img,
+            mask_features_fusion=self.roi_heads_fusion,
+            num_slices=self.num_slices_per_batch
         )
+        else:
+            roi_heads = RoIHeads(
+                # Box
+                box_roi_pool,
+                box_head,
+                box_predictor,
+                box_fg_iou_thresh,
+                box_bg_iou_thresh,
+                box_batch_size_per_image,
+                box_positive_fraction,
+                bbox_reg_weights,
+                box_score_thresh,
+                box_nms_thresh,
+                box_detections_per_img,
+            )
 
         if image_mean is None:
             image_mean = [0.485, 0.456, 0.406]

@@ -30,6 +30,7 @@ class ModelBuilder:
         early_mlp_fusion = self.cfg.get("MODEL", "early_mlp_fusion", "None")
         early_mlp_reduction = self.cfg.get_int("MODEL", "early_mlp_reduction", 16)
         early_mlp_bias = self.cfg.get("MODEL", "early_mlp_bias", "None")
+        roi_heads_fusion = self.cfg.get("MODEL", "roi_heads_fusion", "None")
 
 
         model_params = {
@@ -52,8 +53,11 @@ class ModelBuilder:
             'rpn_positive_fraction': rpn_positive_fraction,
             'early_mlp_fusion': early_mlp_fusion,
             'early_mlp_reduction': early_mlp_reduction,
-            'early_mlp_bias': early_mlp_bias
+            'early_mlp_bias': early_mlp_bias,
+            'roi_heads_fusion': roi_heads_fusion
         }
+
+        self.logger.info(f"MODEL PARAMS: {model_params}")
         
         model = ExtendedMaskRCNN(**model_params)
 
@@ -69,9 +73,33 @@ class ModelBuilder:
                 self.logger.warning(f"Checkpoint not found: {self.ckpt_path}")
         else:
             self.logger.info(f"Created model.")
+
+        self.logger.info(f"PRINTING MODEL ARCHITECTURE: {model}")
         return model
 
     def build_optimizer(self, model):
         lr = self.cfg.get_float("LOOP", "learning_rate", 1e-4)
         wd = self.cfg.get_float("LOOP", "weight_decay", 1e-4)
-        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+
+        backbone_params = []
+        other_params = []
+
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if "backbone" in name:
+                backbone_params.append(param)
+            else:
+                other_params.append(param)
+
+        param_groups = [
+            {"params": backbone_params, "lr": lr * 0.1},
+            {"params": other_params, "lr": lr},
+        ]
+
+        for name, param in model.named_parameters():
+            if "norm" in name or "bn" in name:
+                param_groups.append({"params": [param], "weight_decay": 0.0, "lr": lr})
+
+
+        return torch.optim.AdamW(param_groups, lr=lr, weight_decay=wd)

@@ -202,7 +202,10 @@ class MaskRCNN(FasterRCNN):
         if mask_head is None:
             mask_layers = (256, 256, 256, 256)
             mask_dilation = 1
-            mask_head = MaskRCNNHeads(out_channels, mask_layers, mask_dilation)
+            if self.roi_heads_fusion != "None":
+                mask_head = MaskRCNNHeads3d(out_channels, mask_layers, mask_dilation)
+            else:
+                mask_head = MaskRCNNHeads(out_channels, mask_layers, mask_dilation)
 
         if mask_predictor is None:
             mask_predictor_in_channels = 256  # == mask_layers[-1]
@@ -315,6 +318,70 @@ class MaskRCNNHeads(nn.Sequential):
             error_msgs,
         )
 
+class MaskRCNNHeads3d(nn.Sequential):
+    _version = 2
+
+    def __init__(self, in_channels, layers, dilation, norm_layer: Optional[Callable[..., nn.Module]] = None):
+        """
+        Args:
+            in_channels (int): number of input channels
+            layers (list): feature dimensions of each FCN layer
+            dilation (int): dilation rate of kernel
+            norm_layer (callable, optional): Module specifying the normalization layer to use. Default: None
+        """
+        blocks = []
+        next_feature = in_channels
+        for layer_features in layers:
+            blocks.append(
+                misc_nn_ops.Conv3dNormActivation(
+                    next_feature,
+                    layer_features,
+                    kernel_size=[3, 3, 3],
+                    stride=1,
+                    padding=(1, dilation, dilation),
+                    dilation=(1, dilation, dilation),
+                    norm_layer=norm_layer,
+                )
+            )
+            next_feature = layer_features
+
+        super().__init__(*blocks)
+        for layer in self.modules():
+            if isinstance(layer, nn.Conv2d):
+                nn.init.kaiming_normal_(layer.weight, mode="fan_out", nonlinearity="relu")
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        version = local_metadata.get("version", None)
+
+        if version is None or version < 2:
+            num_blocks = len(self)
+            for i in range(num_blocks):
+                for type in ["weight", "bias"]:
+                    old_key = f"{prefix}mask_fcn{i+1}.{type}"
+                    new_key = f"{prefix}{i}.0.{type}"
+                    if old_key in state_dict:
+                        state_dict[new_key] = state_dict.pop(old_key)
+
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
 class MaskRCNNPredictor(nn.Sequential):
     def __init__(self, in_channels, dim_reduced, num_classes):
