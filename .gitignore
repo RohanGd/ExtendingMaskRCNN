@@ -8,3 +8,4 @@
 .python-version
 requirements.txt
 /.vscode
+/config
