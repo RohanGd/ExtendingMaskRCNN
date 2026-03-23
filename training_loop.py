@@ -12,17 +12,13 @@ from SEG_helper_functions import save_preds, make_files_for_SEG
 from torch.utils.tensorboard import SummaryWriter
 from multiprocessing import freeze_support
 
-def main():
+def train_emr(config_file):
     # set seed
     torch.manual_seed(42)
-    # load configs and setup logger
-    try:
-        config_file = sys.argv[1]
-    except:
-        raise Exception("NO CONFIG FILE SPECIFIED IN THE ARGS")
+    
     cfg = emrConfigManager(config_file)
     exp_dir,exp_name, log_file = create_experiment_folder(cfg, mode="train")
-    logger = setup_logger(log_file)
+    logger = setup_logger(log_file, name="train")
     logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
     Fusion_Logger.set(cfg, exp_dir)
 
@@ -42,7 +38,7 @@ def main():
     # looping params
     num_epochs = cfg.get_int("LOOP", "num_epochs", 1)
     print_rate = cfg.get_int("LOOP", "print_rate", 100)
-    patience = cfg.get_int("LOOP", "early_stopping_patience", 3)
+    patience = cfg.get_int("LOOP", "early_stopping_patience", num_epochs)
     best_val_loss = float("inf")
     epochs_without_improvement = 0
 
@@ -113,7 +109,8 @@ def main():
             if epochs_without_improvement >= patience:
                 logger.info("Early stopping triggered")
                 break
-
+        
+    return ckpt_path
 
 def validation(model, loader_builder, exp_dir, device, epoch, logger, writer):
     # validation
@@ -173,4 +170,9 @@ def freeze_backbone(model):
 
 if __name__ == "__main__":
     freeze_support()
-    main()
+    # load configs and setup logger
+    try:
+        config_file = sys.argv[1]
+    except:
+        raise Exception("NO CONFIG FILE SPECIFIED IN THE ARGS")
+    train_emr(config_file)

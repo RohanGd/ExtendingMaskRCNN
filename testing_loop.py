@@ -13,18 +13,14 @@ from multiprocessing import freeze_support
 from SEG_helper_functions import make_files_for_SEG, save_preds
 from tqdm import tqdm
 
-def main():
+def test_emr(config_file):
     torch.manual_seed(42) 
     # load configs and setup logger
-    try:
-        config_file = sys.argv[1]
-    except:
-        raise Exception("NO CONFIG FILE SPECIFIED IN THE ARGS")
     cfg = emrConfigManager(config_file)
     exp_dir, exp_name, log_file = create_experiment_folder(cfg, mode="test")
     pred_masks_dir = os.path.join(exp_dir, "pred_masks")
 
-    logger = setup_logger(log_file)
+    logger = setup_logger(log_file, name="test")
     logger.info(f"Experiment created at: {exp_dir}.\nUsing config file {config_file}\n")
     Fusion_Logger.set(cfg, exp_dir)
 
@@ -42,7 +38,7 @@ def main():
     only_SEG_score = cfg.get_bool("LOOP", "only_SEG_score", 1)
     # testing loop
     start_time = datetime.now()
-    metrics = emrMetrics()
+    metrics = emrMetrics(exp_dir)
     with torch.no_grad():
         for images, targets in tqdm(test_dataloader):
             images = images.to(device)
@@ -67,8 +63,13 @@ def main():
     SEG_result = subprocess.run([f".{DATAPATH}/ExtendingMaskRCNN/SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True)
+    logger.info(f"Mean Semantic 3d IoU: {metrics.mean_semantic_3d_iou(exp_dir)}")
     logger.info(f"SEG score CLI Tool: {SEG_result.stdout.strip()}")
 
 if __name__ == "__main__":
     freeze_support()
-    main()
+    try:
+        config_file = sys.argv[1]
+    except:
+        raise Exception("NO CONFIG FILE SPECIFIED IN THE ARGS")
+    test_emr(config_file)

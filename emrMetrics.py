@@ -18,6 +18,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import List, Dict, Tuple, Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import tifffile
 
 class emrMetrics:
     """
@@ -28,7 +29,8 @@ class emrMetrics:
     - Keeps running sums for global IoU/Dice to avoid storing huge lists
     """
 
-    def __init__(self, overlap_thresholds: List[float] = [0.5, 0.75, 0.9], iou_chunk_size: int = 32):
+    def __init__(self, exp_dir, overlap_thresholds: List[float] = [0.5, 0.75, 0.9], iou_chunk_size: int = 32):
+        self.exp_dir = exp_dir
         self.overlap_thresholds = sorted(overlap_thresholds)
         self.iou_chunk_size = int(iou_chunk_size)
         self.reset()
@@ -178,7 +180,57 @@ class emrMetrics:
         
         return sum(seg_scores) / len(seg_scores)
 
+    # ------------------------- semantic IoU ---------------------------
 
+    def load_volume(self, path: str) -> np.ndarray:
+        """Load a 3D multipage TIFF volume"""
+        return tifffile.imread(path)
+
+    def semantic_3d_iou(self, gt_vol: np.ndarray, res_vol: np.ndarray) -> float:
+        """Compute semantic 3D IoU between two volumes"""
+        gt = gt_vol > 0
+        pred = res_vol > 0
+
+        if gt.shape != pred.shape:
+            raise ValueError(f"Shape mismatch: GT {gt.shape} vs Pred {pred.shape}")
+
+        intersection = np.logical_and(gt, pred).sum()
+        union = np.logical_or(gt, pred).sum()
+
+        if union == 0:
+            return 1.0  # both empty
+        return intersection / union
+
+    def mean_semantic_3d_iou(self, exp_dir=None):
+        """
+        Can only be called if the files are created by SEG_helper_functions.py
+        """
+        if exp_dir == None:
+            print("exp_dir is None, cannot compute mean_semantic_3d_IoU")
+            return 0.0
+        gt_dir = os.path.join(exp_dir, "01_GT/SEG")
+        res_dir = os.path.join(exp_dir, "01_RES")
+
+        gt_paths = sorted([os.path.join(gt_dir, f) for f in os.listdir(gt_dir) if f.endswith(".tif")])
+        res_paths = sorted([os.path.join(res_dir, f) for f in os.listdir(res_dir) if f.endswith(".tif")])
+
+        assert len(gt_paths) == len(res_paths), "Mismatch in number of GT vs RES volumes"
+
+        ious = []
+
+        for gt_path, res_path in zip(gt_paths, res_paths):
+            gt_vol = self.load_volume(gt_path)
+            res_vol = self.load_volume(res_path)
+
+            iou = self.semantic_3d_iou(gt_vol, res_vol)
+            ious.append(iou)
+            # print(f"{os.path.basename(gt_path)} IoU: {iou:.4f}")
+
+        mean_iou = np.mean(ious)
+        print(f"\nMean 3D semantic IoU across all volumes: {mean_iou:.4f}")
+        return mean_iou
+    
+    
     # ------------------------- Update (per batch) -------------------------
     def update(self, preds_batch: List[Dict], targets_batch: List[Dict]):
         """
