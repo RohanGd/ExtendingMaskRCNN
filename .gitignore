@@ -9,3 +9,5 @@
 requirements.txt
 /.vscode
 /config
+/testSEGfolder
+/test_dir

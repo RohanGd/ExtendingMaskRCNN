@@ -12,6 +12,8 @@ def load_data(img_path, mask_path=None):
     # Load image
     if img_path.suffix == '.tif':
         img = tifffile.imread(img_path)
+        if img.ndim == 4:
+            img.squeeze(axis = 1)
     elif img_path.suffix == '.npy':
         img = np.load(img_path)
     else:
@@ -25,6 +27,8 @@ def load_data(img_path, mask_path=None):
         mask_path = Path(mask_path)
         if mask_path.suffix == '.tif':
             masks = tifffile.imread(mask_path)
+            if masks.ndim == 4:
+                masks = masks.squeeze(axis=1)
         elif mask_path.suffix == '.npz':
             target_data = np.load(mask_path)
             masks = target_data['masks']  # Shape: (num_instances, H, W)
@@ -33,6 +37,10 @@ def load_data(img_path, mask_path=None):
         
         print(f"Loaded masks: {masks.shape}, {masks.dtype}")
     
+    if mask_path == None:
+        return img
+    if img_path == None:
+        return masks
     return img, masks
 
 
@@ -91,7 +99,58 @@ def visualize(img, masks=None, contour_width=3):
     napari.run()
 
 
+def visualize2(masks):
+    viewer = napari.Viewer()
+    
+    colormaps = ("grey", "bop blue", "bop orange", "bop purple", "cyan", "green")
+    for i, mask in enumerate(masks):
+        print(mask.shape)
+    # Add image layer
+        viewer.add_image(
+            mask,
+            name=str(i),
+            colormap=colormaps[i],
+            opacity=0.5
+        )
+    
+    napari.run()
+
+
 if __name__ == "__main__":
+    
+    # # SIM+n3
+    # paths = [
+    # "/home/rohan/Dev/ExtendingMaskRCNN/datasets/Fluo-N3DH-SIM+/test/masks/0003_044.npz",
+    # "/home/rohan/Dev/ExtendingMaskRCNN/data/SIM+_n3/lateFusion_onlyCenter_20260327_091016/renamed_preds/0003_044.tif",
+    # "/home/rohan/Dev/ExtendingMaskRCNN/data/SIM+_n3/channelFusion_20260327_090820/renamed_preds/0003_044.tif",
+    # ]
+
+    # # SIM+n5
+    # paths = [
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/datasets/Fluo-N3DH-SIM+/test/masks/0003_044.npz",
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/data/SIM+_n5/channelFusion_20260328_214504/renamed_preds/0003_044.tif",
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/data/SIM+_n5/lateFusion_onlyCenter_20260328_222937/renamed_preds/0003_044.tif",
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/data/SIM+_n5/earlyFusion_GlobalGaussian_20260328_214504/renamed_preds/0003_044.tif"
+    # ]
+
+    # # 12spheroids
+    # paths = [
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/datasets/12spheroids_Low/test/masks/0000_035.npz",
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/Experiments/test/12spheroids_Low_n3/channelFusion_20260330_145609/renamed_preds/0000_035.tif",
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/Experiments/test/12spheroids_Low_n3/earlyFusion_GlobalGaussian_20260330_145748/renamed_preds/0000_035.tif",
+    #     "/home/rohan/Dev/ExtendingMaskRCNN/Experiments/test/12spheroids_Low_n3/lateFusion_onlyCenter_20260330_145714/renamed_preds/0000_035.tif"
+    # ]
+
+
+    # masks = [load_data(path) for path in paths[1:]]
+    # masks = [mask.any(axis=0) for mask in masks]
+
+    # mask0 = paths[0]
+    # mask0 = np.load(mask0)["masks"]
+    # mask0 = mask0.any(axis=0)
+    # masks.insert(0, mask0)
+
+    # visualize2(masks)
     if len(sys.argv) == 1:
         # Default options - uncomment the pair you want to use
         
@@ -100,10 +159,12 @@ if __name__ == "__main__":
         # mask_path = "data/Fluo-N3DH-SIM+/02_GT/SEG/man_seg050.tif"
         
         # Option 2: Processed .npy/.npz files (active)
-        img_path = "datasets/Fluo-N3DH-SIM+/train/imgs/0054_053.npy"
-        mask_path = "datasets/Fluo-N3DH-SIM+/train/masks/0054_053.npz"
+        img_path = "/home/rohan/Dev/ExtendingMaskRCNN/datasets/Fluo-N3DH-SIM+/test/imgs/0008_018.npy"
+        mask_path = "/home/rohan/Dev/ExtendingMaskRCNN/data/SIM+_n5/channelFusion_20260328_214504/renamed_preds/0008_018.tif"
+        # mask_path = "/home/rohan/Dev/ExtendingMaskRCNN/datasets/Fluo-N3DH-SIM+/test/masks/0008_018.npz"
         img, masks = load_data(img_path, mask_path)
         visualize(img, masks)
+
     
     elif len(sys.argv) == 2:
         # Single argument: image only
