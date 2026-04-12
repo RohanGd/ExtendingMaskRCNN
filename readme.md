@@ -28,6 +28,87 @@ Sorry again for the manual process. I only needed to run this at the end so did 
 
 
 
+## Results: Fluo_N3DH-SIM+ (59 slices)
+
+### Z Linking: Hungarian Matching (N=5)
+
+| Method | SEG | Semantic_3D_IoU @0.5 | SEG 2D Slices | Mean Diff in Counts | Acc@0.3 | Acc@0.5 | IoU |
+|--------|-----|----------------------|---------------|---------------------|---------|---------|-----|
+| channel fusion | 0.76395 | 0.80302 | 0.71944 | 3.33 | 0.70549 | 0.61518 | 0.72999 |
+| early fusion SE global gaussian | 0.69001 | 0.77850 | 0.62916 | 6.35 | 0.57491 | 0.43186 | 0.71472 |
+| early fusion per FPN | 0.71590 | 0.78088 | 0.66322 | 2.36 | 0.71290 | 0.58229 | 0.72950 |
+| early fusion pixel | 0.67589 | 0.78571 | 0.62947 | 3.25 | 0.66570 | 0.51840 | 0.72927 |
+| early fusion windowed | 0.22349 | 0.30034 | 0.34483 | 20.5 | 0.24987 | 0.12800 | 0.35142 |
+| late fusion conv3d | 0.72223 | 0.80345 | 0.68059 | 1.85 | **0.73473** | 0.62290 | 0.73434 |
+| late fusion mean | 0.75800 | 0.82350 | 0.70833 | 2.19 | 0.73033 | 0.63125 | **0.75485** |
+| late fusion only_center | **0.76789** | **0.81911** | 0.71661 | 2.26 | 0.72823 | **0.63609** | 0.74742 |
+| late fusion SE | 0.72776 | 0.80196 | 0.68483 | 2.5 | 0.71040 | 0.60288 | 0.73620 |
+
+### Z Linking: Hungarian Matching (N=3)
+
+| Method | SEG | Semantic_3D_IoU @0.5 | SEG 2d | Mean Diff in Counts | Acc@0.5 |
+|--------|-----|----------------------|-----|---------------------|---------|
+| channel fusion | **0.75263** | 0.80592 | 0.69979 | 1.54 | 0.66049 | 0.74682 |
+| early fusion SE global gaussian | 0.70924 | 0.77591 | 0.65025 | 5.22 | 0.47305 | 0.70694 |
+| late fusion only_center | 0.74840 | **0.81162** | 0.69864 | 2.77 | 0.59722 | 0.74107 |
+
+### Z Linking: Hungarian Matching (N=7)
+
+| Method | SEG | Semantic_3D_IoU @0.5 | SEG 2d | Mean Diff in Counts | Acc@0.5 | IoU |
+|--------|-----|----------------------|-----|---------------------|---------|-----|
+| channel fusion | **0.76968** | **0.83411** | 0.7075 | 3.21 | 0.60739 | **0.77983** |
+| early fusion SE global gaussian | 0.72011 | 0.77980 | 0.67284 | 4.09 | 0.52761 | 0.70646 |
+| late fusion only_center | 0.75926 | 0.82290 | **0.71528** | 2.49 | **0.62699** | 0.75081 |
+
+### Z Linking: Hungarian Matching (N=1)
+
+| Method | SEG | Semantic_3D_IoU @0.5 | SEG 2d | Mean Diff in Counts | Acc |
+|--------|-----|----------------------|-----|---------------------|-----|
+| maskrcnn | 0.71573 | 0.7638 | 0.67976 | 2.69 | 0.68953 |
+
+### Z Linking: sk.image.label (connectivity=1) after binary OR per slice (N=3)
+
+| Method | SEG | Semantic_3D_IoU @0.5 |
+|--------|-----|----------------------|
+| channel fusion | 0.67987 | 0.80592 |
+| early fusion SE global gaussian | 0.68236 | 0.77591 |
+| late fusion only_center | **0.70190** | 0.81162 |
+
+---
+
+## Results: 12 Spheroids_Low (63 slices)
+
+### Z Linking: Hungarian Matching (N=3)
+
+| Method | SEG | Semantic_3D_IoU @0.5 |
+|--------|-----|----------------------|
+| channel fusion | 0.49014 | **0.81247 **|
+| early fusion SE global gaussian | 0.49901 | 0.80582 |
+| late fusion | **0.50387** | 0.80038 |
+
+### Z Linking: Hungarian Matching (N=5)
+
+| Method | SEG | Semantic_3D_IoU @0.5 | SEG 2D Slices | Acc |
+|--------|-----|----------------------|---------------|-----|
+| channel fusion | **0.54249** | 0.80514 | 0.65618 | 0.19492 |
+| early fusion SE global gaussian | 0.49556 | 0.79602 | 0.63368 | 0.19565 |
+| late fusion | 0.51998 | **0.81698** | 0.64732 | 0.19466 |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
