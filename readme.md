@@ -1,3 +1,37 @@
+## How to run:
+1. Creat a config file. See examples in /config
+2. To train a model: `python training_loop.py {path_to_config}.ini`
+3. then update the ckpt_path to the model checkpoint stored under `f"Experiments/{exp_name}"`
+4. then run `python training_loop.py {path_to_config}.ini`
+
+There is also a file that does both train and test in one go without having to update the config file manually. To do that run:
+`run_train_test_pipeline.py {path_to_config}.ini`
+
+The training loop already prints a set of metrics, such as `**3d_semantic_iou**` and the `**SEG score**` which are the important ones we see first. However for the others I will say ignore the other metrics printed and just run the below files for metrics other than **3d_semantic_iou** and the **SEG score**.
+
+This pipeline is not automated so bear with the manual quirks.
+```
+for SEG score: ./SEGMeasure {experiment_folder_path} 01 4
+for acc@X, 2d iou, SEG score(slicewise)
+1. first run python utils/store_2d_masks.py. Note: I have not implemented CLI argument passing for thois file, so please hardcode the exp_dir: just call the store_2d_dataset_masks and the store_2d_preds function on the experiment_dir
+2. It should create a new folder in test_dir. Now pass this folder_path to the functions in utils/metrics2diou.py and utils/metrics_acc_X.py. 
+```
+Sorry again for the manual process. I only needed to run this at the end so did not spend time automating it.
+
+
+
+### Config file params:
+- `num_slices_per_batch` -  number of slices to consider for 2.5D model n = 1,3,5,7, ..... the implementation should ideally also work with even n.( havent tested as was not meaningful for the task)
+- `early_mlp_fusion` - None, Global, GlobalPerFPN, Windowed - note: windowed is now just Pixel level as windowed performed teriibly. If you really want to run it change default window size by changing the window_size parameter in emrmodel/early_mlp_fusion.py SliceSEFusionFixedWindow __init__()
+- `early_mlp_bias` -   this can be gaussian, only_center, zero. This controls what values the init_weights get in emrmodel/early_mlp_fusion.py
+- `roi_heads_fusion` - mean, only_center, conv3d, SE
+
+
+
+
+
+
+The below content is not updated since 15.03.2026
 # Extending Mask-RCNN
 Dataset Link - [Simulated nuclei of HL60 cells stained with Hoechst](https://celltrackingchallenge.net/3d-datasets/).
 

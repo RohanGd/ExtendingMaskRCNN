@@ -347,7 +347,7 @@ class MaskRCNNHeads3d(nn.Sequential):
 
         super().__init__(*blocks)
         for layer in self.modules():
-            if isinstance(layer, nn.Conv2d):
+            if isinstance(layer, nn.Conv3d):
                 nn.init.kaiming_normal_(layer.weight, mode="fan_out", nonlinearity="relu")
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
