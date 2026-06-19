@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import os
-from random import shuffle
+import random
 import tifffile as tiff
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -9,13 +9,14 @@ from emrConfigManager import DATAPATH
 import nrrd
 
 # ANISOTROPY = "Low"
-# ANISOTROPY = "High"
-ANISOTROPY = ""
+ANISOTROPY = "High"
+# ANISOTROPY = ""
+SPLIT_SEED = 42
 
 def main():
     # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-CHO"
-    dataset_path = f"{DATAPATH}/data/Fluo-N3DH-SIM+"
-    # dataset_path = f"{DATAPATH}/data/12spheroids"
+    # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-SIM+"
+    dataset_path = f"{DATAPATH}/data/12spheroids"
 
 
     rusure = input(f"WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\nFor dataset: {dataset_path}_{ANISOTROPY}\n Enter Y/N:    ")
@@ -27,7 +28,7 @@ def main():
     img_paths = get_file_paths(dataset_path=dataset_path, type="imgs")
     mask_paths = get_file_paths(dataset_path=dataset_path, type="masks")
 
-    train_paths, test_paths, val_paths = train_test_val_split_on_paths(img_paths, mask_paths)
+    train_paths, test_paths, val_paths = train_test_val_split_on_paths(img_paths, mask_paths, seed=SPLIT_SEED)
 
     # val_paths = val_paths[:2]
     print("-"*50,"\nCREATING VAL DATASET, number of volumes: ", len(val_paths))
@@ -92,13 +93,14 @@ def get_file_paths(dataset_path:str, type:str):
         return sorted(paths)
 
 
-def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.15, 0.15]):
+def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.15, 0.15], seed=None):
     """Shuffles the list of img_paths and mask_paths and then splits the lists into train, test and val in the given split ratio.
 
     Args:
         imgs_paths (str)
         masks_paths (str)
         split (list, optional): train, test, val splits. Defaults to [0.75, 0.15, 0.15].
+        seed (int, optional): seed used to make train, test and val splits reproducible.
 
     Returns:
         train_paths (list): list of tuples of img_path and corresponding mask_path
@@ -112,7 +114,8 @@ def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.
         pair = (img_paths[i], mask_paths[i])
         paired_data_label.update({i: pair})
     new_indices = list(range(n))
-    shuffle(new_indices)
+    rng = random.Random(seed)
+    rng.shuffle(new_indices)
     train_indices = new_indices[0 : int(n*split[0])]
     test_indices = new_indices[int(n*split[0]): int(n*(split[0] + split[1]))]
     val_indices = new_indices[int(n*(split[0] + split[1])) : ]

@@ -9,7 +9,7 @@ import platform
 from pathlib import Path
 
 # Better: check for a specific cluster environment rather than a single node
-IS_MANGI = platform.node() == "mangi"
+IS_MANGI = platform.node() == "mangilinux"
 DATAPATH = Path("") if IS_MANGI else Path("/netscratch/gadgil/")
 
 
