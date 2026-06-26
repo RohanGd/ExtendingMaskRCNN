@@ -47,7 +47,7 @@ class emrDataset(Dataset):
         self.mode = mode
         self.n = n
         self.H, self.W = numpy.load(os.path.join(imgs_dir, img_files[0])).shape # total number of slices per volume /3d image, and H, W
-        self.v_size = len([f for f in img_files if f.startswith("0000")])
+        self.v_size = len([f for f in img_files if f.startswith("0000")]) # assumes all volumes have same number of slices
         num_files = len(img_files)
         # self.v, self.s = len(str(num_files)) + 1, len(str(self.v_size)) + 1
         self.v, self.s = 4, 3
@@ -95,6 +95,7 @@ class emrDataset(Dataset):
                 img_slice = torch.ones(size=(self.H, self.W)) * eps
             else:
                 # get slice at v_idx at slice_idx
+                # print(DATAPATH, self.dataset_name, self.mode, v_idx, slice_idx, idx, self.v_size)
                 img_slice = numpy.load(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/imgs/{str(v_idx).zfill(self.v)}_{str(slice_idx).zfill(self.s)}.npy")
                 img_slice = torch.from_numpy(img_slice)
             img_slices.append(img_slice)
@@ -110,6 +111,10 @@ class emrDataset(Dataset):
 
         return img_slices, target
 
+
+class emrDataset2(Dataset):
+    def __init__(self, imgs_dir: str = None, masks_dir: str = None, num_slices: int = 3, dataset_name = "Fluo-N3DH-SIM+", logger=None, mode="train"):
+        pass
 
 def emrCollate_fn(batch):
     '''

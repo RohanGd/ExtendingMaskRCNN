@@ -1,188 +1,283 @@
-import torch
-import numpy as np
-import os
+import argparse
 import random
+from dataclasses import dataclass
+from pathlib import Path
+import json
+
+import nrrd
+import numpy as np
 import tifffile as tiff
+import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-from emrConfigManager import DATAPATH
-import nrrd
 
-# ANISOTROPY = "Low"
-ANISOTROPY = "High"
-# ANISOTROPY = ""
+from emrConfigManager import DATAPATH
+
+
+DEFAULT_DATASET = "ATAS"
 SPLIT_SEED = 42
+SPLIT = (0.75, 0.15, 0.10)
+BENCHMARK_ROOT = Path("data/Cell_Segmentation_Beyond_2D_Benchmark_Dataset")
+DATASETS_ROOT = Path("datasets")
+
+
+def resolve_path(path):
+    path = Path(path)
+    candidates = [
+        path,
+        Path(__file__).resolve().parent / path,
+        Path(DATAPATH) / path,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[1]
+
+
+@dataclass(frozen=True)
+class VolumePair:
+    image_path: Path
+    mask_path: Path
+
+
+class DatasetSource:
+    name = None
+    output_name = None
+
+    def get_pairs(self):
+        raise NotImplementedError
+
+    def read_volume(self, pair):
+        image = tiff.imread(pair.image_path)
+        mask = tiff.imread(pair.mask_path)
+        return ensure_3d(image), ensure_3d(mask)
+
+
+class BenchmarkTiffSource(DatasetSource):
+    def __init__(self, name, root=BENCHMARK_ROOT):
+        self.name = name
+        self.output_name = name
+        self.root = resolve_path(root)
+        self.images_dir = self.root / "images" / name
+        self.masks_dir = self.root / "masks" / name
+
+    def get_pairs(self):
+        if not self.images_dir.exists():
+            raise FileNotFoundError(f"Image directory not found: {self.images_dir}")
+        if not self.masks_dir.exists():
+            raise FileNotFoundError(f"Mask directory not found: {self.masks_dir}")
+
+        image_paths = sorted(self.images_dir.glob("*.tif"))
+        mask_by_name = {path.name: path for path in sorted(self.masks_dir.glob("*.tif"))}
+        if not image_paths:
+            raise FileNotFoundError(f"No .tif images found in {self.images_dir}")
+
+        missing_masks = [path.name for path in image_paths if path.name not in mask_by_name]
+        if missing_masks:
+            raise FileNotFoundError(f"Missing masks for {self.name}: {missing_masks[:5]}")
+
+        return [VolumePair(image_path, mask_by_name[image_path.name]) for image_path in image_paths]
+
+
+class CellTrackingTiffSource(DatasetSource):
+    def __init__(self, name, root=None):
+        self.name = name
+        self.output_name = name
+        self.root = resolve_path(root or Path("data") / name)
+
+    def get_pairs(self):
+        pairs = []
+        for folder_name in ["01", "02"]:
+            image_dir = self.root / folder_name
+            mask_dir_name = f"{folder_name}_GT/SEG" if "SIM+" in self.name else f"{folder_name}_ST/SEG"
+            mask_dir = self.root / mask_dir_name
+            image_paths = sorted(path for path in image_dir.iterdir() if path.is_file())
+            mask_paths = sorted(path for path in mask_dir.iterdir() if path.is_file())
+            if len(image_paths) != len(mask_paths):
+                raise ValueError(f"Length mismatch between {image_dir} and {mask_dir}")
+            pairs.extend(VolumePair(image_path, mask_path) for image_path, mask_path in zip(image_paths, mask_paths))
+        return pairs
+
+
+class SpheroidNrrdSource(DatasetSource):
+    def __init__(self, anisotropy="High", root=Path("data/12spheroids")):
+        self.name = "12spheroids"
+        self.anisotropy = anisotropy
+        self.output_name = f"12spheroids_{anisotropy}"
+        self.root = resolve_path(root)
+
+    def get_pairs(self):
+        if self.anisotropy == "High":
+            image_suffix = "_expanded_3.nrrd"
+            mask_suffix = "_expanded_3_DT.nrrd"
+        elif self.anisotropy == "Low":
+            image_suffix = "_spheroid.nrrd"
+            mask_suffix = "_GT.nrrd"
+        else:
+            raise ValueError('anisotropy must be either "High" or "Low"')
+
+        image_paths = sorted((self.root / "spheroids").glob(f"*{image_suffix}"))
+        mask_paths = sorted((self.root / "GT").glob(f"*{mask_suffix}"))
+        if len(image_paths) != len(mask_paths):
+            raise ValueError("Length mismatch between 12spheroids images and masks")
+        return [VolumePair(image_path, mask_path) for image_path, mask_path in zip(image_paths, mask_paths)]
+
+    def read_volume(self, pair):
+        image, _ = nrrd.read(pair.image_path)
+        mask, _ = nrrd.read(pair.mask_path)
+        image = image.transpose(2, 0, 1)
+        mask = mask.transpose(2, 0, 1)
+
+        target_depth = 190 if self.anisotropy == "High" else 64
+        padding = target_depth - image.shape[0]
+        if padding > 0:
+            padding_front = padding // 2
+            padding_back = padding - padding_front
+            image = np.pad(image, ((padding_front, padding_back), (0, 0), (0, 0)), mode="constant")
+            mask = np.pad(mask, ((padding_front, padding_back), (0, 0), (0, 0)), mode="constant")
+
+        return image, mask
+
+
+def get_dataset_source(dataset_name, anisotropy):
+    benchmark_sources = ["ATAS", "C_elegans_nuclei", "Mouse-Skull", "Mouse-Organoid"]
+    if dataset_name in benchmark_sources:
+        return BenchmarkTiffSource(dataset_name)
+    if dataset_name == "Fluo-N3DH-SIM+":
+        return CellTrackingTiffSource(dataset_name)
+    if dataset_name == "12spheroids":
+        return SpheroidNrrdSource(anisotropy=anisotropy)
+    raise ValueError(f"Unknown dataset {dataset_name}. Choose from {available_datasets()}")
+
+
+def available_datasets():
+    return ["ATAS", "C_elegans_nuclei", "Mouse-Skull", "Mouse-Organoid", "Fluo-N3DH-SIM+", "12spheroids"]
+
 
 def main():
-    # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-CHO"
-    # dataset_path = f"{DATAPATH}/data/Fluo-N3DH-SIM+"
-    dataset_path = f"{DATAPATH}/data/12spheroids"
+    args = parse_args()
+    source = get_dataset_source(args.dataset, args.anisotropy)
+    save_dir = create_new_dir_struct(source.output_name, args.output_root)
 
-
-    rusure = input(f"WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\nFor dataset: {dataset_path}_{ANISOTROPY}\n Enter Y/N:    ")
-    if rusure != "Y":
+    response = input(
+        "WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\n"
+        f"For dataset: {source.output_name}\n"
+        f"Seed: {args.seed}\n"
+        "Enter Y/N:    "
+    )
+    if response != "Y":
         exit()
 
-    save_dir = create_new_dir_struct(dataset_path)
+    pairs = source.get_pairs()
+    train_paths, test_paths, val_paths = train_test_val_split_on_paths(pairs, split=args.split, seed=args.seed)
 
-    img_paths = get_file_paths(dataset_path=dataset_path, type="imgs")
-    mask_paths = get_file_paths(dataset_path=dataset_path, type="masks")
-
-    train_paths, test_paths, val_paths = train_test_val_split_on_paths(img_paths, mask_paths, seed=SPLIT_SEED)
-
-    # val_paths = val_paths[:2]
-    print("-"*50,"\nCREATING VAL DATASET, number of volumes: ", len(val_paths))
-    create_dataset(val_paths, save_dir, type_="val")
-    print("-"*50,"\nCREATING TEST DATASET, number of volumes: " ,len(test_paths))
-    create_dataset(test_paths, save_dir, type_="test")
-    print("-"*50,"\nCREATING TRAIN DATASET, number of volumes: " ,len(train_paths))
-    create_dataset(train_paths, save_dir, type_="train")
+    print("-" * 50, "\nCREATING VAL DATASET, number of volumes: ", len(val_paths))
+    create_dataset(val_paths, save_dir, source, type_="val")
+    print("-" * 50, "\nCREATING TEST DATASET, number of volumes: ", len(test_paths))
+    create_dataset(test_paths, save_dir, source, type_="test")
+    print("-" * 50, "\nCREATING TRAIN DATASET, number of volumes: ", len(train_paths))
+    create_dataset(train_paths, save_dir, source, type_="train")
 
 
-def create_new_dir_struct(dataset_path:str):
-    new_path = f"{DATAPATH}/datasets/" + dataset_path.split("/")[-1]
-    if "12spheroids" in dataset_path:
-        new_path = f"{DATAPATH}/datasets/" + dataset_path.split("/")[-1] + "_" + ANISOTROPY
-    if not os.path.exists(new_path):
-        subdirs = ["train/imgs", "train/masks", "test/imgs", "test/masks", "val/imgs", "val/masks"]
-        for subdir in subdirs:
-            os.makedirs(os.path.join(new_path, subdir))
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate 2D Mask R-CNN slices from 3D cell segmentation datasets.")
+    parser.add_argument("--dataset", choices=available_datasets(), default=DEFAULT_DATASET)
+    parser.add_argument("--seed", type=int, default=SPLIT_SEED)
+    parser.add_argument("--split", nargs=3, type=float, default=SPLIT, metavar=("TRAIN", "TEST", "VAL"))
+    parser.add_argument("--anisotropy", choices=["High", "Low"], default="High")
+    parser.add_argument("--output-root", type=Path, default=DATASETS_ROOT)
+    return parser.parse_args()
+
+
+def create_new_dir_struct(dataset_name, output_root):
+    new_path = resolve_path(output_root) / dataset_name
+
+    subdirs = ["train/imgs", "train/masks", "test/imgs", "test/masks", "val/imgs", "val/masks"]
+    for subdir in subdirs:
+        (new_path / subdir).mkdir(parents=True, exist_ok=True)
     return new_path
 
 
-def get_file_paths(dataset_path:str, type:str):
-    """Returns file paths for all imgs or masks inside the dataset folder. Expects folder structure:
-    dataset:
-        - /01
-        - /01_ERR_SEG
-        - /02
-        - /02_ERR_SEG
+def train_test_val_split_on_paths(pairs, split=SPLIT, seed=None):
+    """Put the largest volumes in train, then split the remainder reproducibly."""
+    if not np.isclose(sum(split), 1.0):
+        raise ValueError(f"split must sum to 1.0, got {split}")
 
-    Args:
-        dataset_path (str): path of the dataset folder (data/Fluo-N3DH-SIM+)
-        type (str): "imgs" or "masks"
-    """
-    paths = list()
+    sorted_pairs = sorted(pairs, key=lambda x: x.image_path.stat().st_size, reverse=True)
+    n = len(sorted_pairs)
+    train_end = int(n * split[0])
+    test_count = int(n * split[1])
 
-    if "12spheroids" in dataset_path:
-        if type == "imgs":
-            if ANISOTROPY == "High": 
-                endchars = "_expanded_3.nrrd"
-            elif ANISOTROPY == "Low":
-                endchars = "_spheroid.nrrd"
-            print("Creating 12spheroids with ANISOTROPY - " + ANISOTROPY, endchars)
-            paths = [os.path.join(dataset_path, "spheroids", x) for x in os.listdir(os.path.join(dataset_path, "spheroids")) if x.endswith(endchars)]
-        elif type == "masks":
-            if ANISOTROPY == "High": 
-                endchars = "_expanded_3_DT.nrrd"
-            elif ANISOTROPY == "Low":
-                endchars = "_GT.nrrd"
-            paths = [os.path.join(dataset_path, "GT", x) for x in os.listdir(os.path.join(dataset_path, "GT")) if x.endswith(endchars)]
-        return sorted(paths)
-    
-    else:
-        for fol_name in ["01", "02"]:
-            if type == "imgs":
-                fol_paths = [os.path.join(dataset_path, fol_name, x) for x in os.listdir(os.path.join(dataset_path, fol_name))]
-            elif type == "masks":
-                man_seg_dirpath = "_GT/SEG" if "SIM+" in dataset_path else "_ST/SEG"
-                fol_paths =[os.path.join(dataset_path, fol_name+man_seg_dirpath, x) for x in os.listdir(os.path.join(dataset_path,  fol_name+man_seg_dirpath))]
-            else:
-                raise 'Specify type either "imgs" or "masks".'
-            paths.extend(fol_paths)
-        return sorted(paths)
+    train_paths = sorted_pairs[:train_end]
+    remaining_paths = sorted_pairs[train_end:]
 
-
-def train_test_val_split_on_paths(img_paths:str, mask_paths:str, split=[0.75, 0.15, 0.15], seed=None):
-    """Shuffles the list of img_paths and mask_paths and then splits the lists into train, test and val in the given split ratio.
-
-    Args:
-        imgs_paths (str)
-        masks_paths (str)
-        split (list, optional): train, test, val splits. Defaults to [0.75, 0.15, 0.15].
-        seed (int, optional): seed used to make train, test and val splits reproducible.
-
-    Returns:
-        train_paths (list): list of tuples of img_path and corresponding mask_path
-        test_paths (list)
-        val_paths (list)
-    """
-    assert len(img_paths) == len(mask_paths), "Length mismatch of img_paths and mask_paths in create_splits_on_file_paths"
-    paired_data_label = dict()
-    n = len(img_paths)
-    for i in range(n):
-        pair = (img_paths[i], mask_paths[i])
-        paired_data_label.update({i: pair})
-    new_indices = list(range(n))
     rng = random.Random(seed)
-    rng.shuffle(new_indices)
-    train_indices = new_indices[0 : int(n*split[0])]
-    test_indices = new_indices[int(n*split[0]): int(n*(split[0] + split[1]))]
-    val_indices = new_indices[int(n*(split[0] + split[1])) : ]
+    rng.shuffle(remaining_paths)
 
-    def pluck(indices):
-        target_paths = list()
-        for index in indices:
-            target_paths.append(paired_data_label[index])
-        return target_paths
-
-    train_paths, test_paths, val_paths = pluck(train_indices), pluck(test_indices), pluck(val_indices)
+    test_paths = remaining_paths[:test_count]
+    val_paths = remaining_paths[test_count:]
 
     return train_paths, test_paths, val_paths
 
 
-def create_dataset(file_paths:str, save_dir:str, type_:str):
+def create_dataset(file_paths, save_dir, source, type_):
+    metadata = dict()
+    next_file_id = 0
     for idx, path_pair in enumerate(tqdm(file_paths)):
-        make(path_pair, idx, save_dir, type_)
+
+        files_saved, next_file_id = make(path_pair, idx, next_file_id, save_dir, type_, source)
+        metadata[idx] = files_saved
+    
+    metadata_file_path = Path(save_dir) / type_ / "metadata.json"
+    print(metadata_file_path)
+    json.dump(metadata, metadata_file_path.open("w", encoding="utf-8") )
+
+
+def ensure_3d(volume):
+    if volume.ndim == 2:
+        return volume[np.newaxis, :, :]
+    if volume.ndim == 3:
+        return volume
+    raise ValueError(f"Expected 2D or 3D volume, got shape {volume.shape}")
 
 
 def resize_with_padding(img, target_size=512, is_mask=False):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     num_slices, height, width = img.shape
 
     img = torch.from_numpy(img).float().to(device)
-    
-    # If already target size, return as is
+
     if height == target_size and width == target_size:
-        return img
-    
-    # Calculate scaling factor to fit within target size
+        return img.cpu()
+
     ratio = min(target_size / width, target_size / height)
     new_h = int(height * ratio)
     new_w = int(width * ratio)
-    
-    # Add batch and channel dimensions for interpolate: (N, C, H, W)
-    img_reshaped = img.unsqueeze(1).float()  # Need float for interpolation
-    
-    # Resize - use nearest for masks to preserve IDs
+
+    img_reshaped = img.unsqueeze(1).float()
     img_resized = F.interpolate(
-        img_reshaped, 
-        size=(new_h, new_w), 
-        mode='nearest' if is_mask else 'bilinear',  # Nearest for masks!
-        align_corners=False if not is_mask else None
+        img_reshaped,
+        size=(new_h, new_w),
+        mode="nearest" if is_mask else "bilinear",
+        align_corners=False if not is_mask else None,
     )
-    
-    # Calculate padding (left, right, top, bottom)
+
     pad_left = (target_size - new_w) // 2
     pad_right = target_size - new_w - pad_left
     pad_top = (target_size - new_h) // 2
     pad_bottom = target_size - new_h - pad_top
-    
-    # Apply padding
+
     img_padded = F.pad(
-        img_resized, 
-        (pad_left, pad_right, pad_top, pad_bottom), 
-        mode='constant', 
-        value=0
+        img_resized,
+        (pad_left, pad_right, pad_top, pad_bottom),
+        mode="constant",
+        value=0,
     )
-    
-    # Remove channel dimension and return
+
     img_padded = img_padded.squeeze(1)
-    
-    # Convert back to int32 if mask
     if is_mask:
         img_padded = img_padded.int()
-    
+
     del img, img_reshaped, img_resized
     return img_padded.cpu()
 
@@ -192,26 +287,21 @@ def get_target_from_mask(mask, image_id):
     mask: torch.Tensor of shape [H, W]
     returns: target dict for Mask R-CNN
     """
-
-    # mask = torch.from_numpy(mask) if isinstance(mask, np.ndarray) else mask
-
-    # get unique object ids (excluding background)
     obj_ids = torch.unique(mask)
     obj_ids = obj_ids[obj_ids != 0]
 
-    # create binary masks for each object id
-    masks = (mask[None, :, :] == obj_ids[:, None, None]).to(torch.uint8)  # [N, H, W]
+    masks = (mask[None, :, :] == obj_ids[:, None, None]).to(torch.uint8)
 
     boxes = []
-    for m in masks:
-        pos = torch.where(m)
+    for single_mask in masks:
+        pos = torch.where(single_mask)
         if len(pos[0]) == 0:
             continue
         xmin, xmax = pos[1].min(), pos[1].max()
         ymin, ymax = pos[0].min(), pos[0].max()
 
         if xmax <= xmin or ymax <= ymin:
-            continue  # this gave error in training (basically empty boxes if xmin == xmax or ymin == ymax)
+            continue
         boxes.append([xmin, ymin, xmax, ymax])
 
     if len(boxes) == 0:
@@ -232,81 +322,56 @@ def get_target_from_mask(mask, image_id):
         "image_id": torch.tensor([image_id]),
         "area": area,
         "iscrowd": iscrowd,
-        "orignal_mask": mask
+        "orignal_mask": mask,
     }
-    
-    
+
     return target
-    
 
-def make(path_pair, volume_idx, save_dir, type_):
-    img_path, mask_path = path_pair
-    if "12spheroids" in save_dir:
-        _img, _ = nrrd.read(img_path)
-        _mask, _ = nrrd.read(mask_path)
-        _img = _img.transpose(2, 0, 1)
-        _mask = _mask.transpose(2, 0, 1)
-        # from utils.napariView import visualize
-        # visualize(_mask)        
-        
-        if ANISOTROPY == "High":
-            num_padding = 190 - _img.shape[0]
-        elif ANISOTROPY == "Low":
-            num_padding = 64 - _img.shape[0]
-        p_front = num_padding // 2
-        p_back = num_padding- p_front
-        _img = np.pad(_img, ((p_front, p_back), (0, 0), (0, 0)), mode='constant')
-        _mask = np.pad(_mask, ((p_front, p_back), (0, 0), (0, 0)), mode='constant')
 
-   
-    else:
-        _img = tiff.imread(img_path)
-        _mask = tiff.imread(mask_path)
+def make(path_pair, volume_idx, next_file_id, save_dir, type_, source):
+    image, mask = source.read_volume(path_pair)
 
-    assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_path} and {mask_path}"
-    _img = resize_with_padding(_img, is_mask=False)
-    _mask = resize_with_padding(_mask, is_mask=True)
-    assert _img.shape[0] == _mask.shape[0], f"Mismatch between number of slices of mask and image for {img_path} and {mask_path}"
-    volume_depth = _img.shape[0]
+    assert image.shape[0] == mask.shape[0], f"Mismatch between number of slices of mask and image for {path_pair}"
+    image = resize_with_padding(image, is_mask=False)
+    mask = resize_with_padding(mask, is_mask=True)
+    assert image.shape[0] == mask.shape[0], f"Mismatch between number of slices of mask and image for {path_pair}"
+    volume_depth = image.shape[0]
 
-    # bottleneck here, in saving individual slices
-       
-    for slice_idx in range(_img.shape[0]):
-        img_slice = _img[slice_idx].cpu().numpy().copy()
-        mask_slice = _mask[slice_idx]
-        
-        save_slice_worker((img_slice, mask_slice, volume_idx, slice_idx, save_dir, type_, volume_depth))
+    files_saved = []
+    for slice_idx in range(image.shape[0]):
+        img_slice = image[slice_idx].cpu().numpy().copy()
+        mask_slice = mask[slice_idx]
 
+        save_slice_worker((img_slice, mask_slice, next_file_id, save_dir, type_))
+        files_saved.append(next_file_id)
+        next_file_id += 1
+    return files_saved, next_file_id
 
 def save_slice_worker(args):
-    img_slice, mask_slice, idx, slice_idx, save_dir, type_, volume_depth = args
-    save_as_2d_slice(slice_data=img_slice, volume_idx=idx, slice_idx=slice_idx, 
-                     save_dir=save_dir, type_=type_)
-    target = get_target_from_mask(mask=mask_slice, image_id=idx * volume_depth + slice_idx)
-    save_target(target, volume_idx=idx, slice_idx=slice_idx, type_=type_, save_dir=save_dir)
+    img_slice, mask_slice, file_id, save_dir, type_ = args
+    save_as_2d_slice(slice_data=img_slice, file_id=file_id, save_dir=save_dir, type_=type_)
+    target = get_target_from_mask(mask=mask_slice, image_id=file_id)
+    save_target(target, file_id=file_id, type_=type_, save_dir=save_dir)
 
-
-def save_as_2d_slice(slice_data, volume_idx, slice_idx, save_dir, type_):
-    v, s = 4, 3
-    # Create subdirectory per volume
-    filepath = f"{save_dir}/{type_}/imgs/{str(volume_idx).zfill(v)}_{str(slice_idx).zfill(s)}.npy"
+def save_as_2d_slice(slice_data, file_id, save_dir, type_):
+    filepath = Path(save_dir) / type_ / "imgs" / f"{str(file_id).zfill(6)}.npy"
     np.save(filepath, slice_data)
 
 
-def save_target(target, volume_idx, slice_idx, type_, save_dir):
-    v, s = 4, 3
-    # Create subdirectory per volume
-    filepath = f"{save_dir}/{type_}/masks/{str(volume_idx).zfill(v)}_{str(slice_idx).zfill(s)}.npz"
+def save_target(target, file_id, type_, save_dir):
+    filepath = Path(save_dir) / type_ / "masks" / f"{str(file_id).zfill(6)}.npz"
+
     target = {
-        'boxes': target['boxes'].cpu().numpy(),
-        'labels': target['labels'].cpu().numpy(),
-        'masks': target['masks'].cpu().numpy(),
-        'image_id': target['image_id'].cpu().numpy(),
-        'area': target['area'].cpu().numpy(),
-        'iscrowd': target['iscrowd'].cpu().numpy(),
-        'orignal_mask': target['orignal_mask'].cpu().numpy()
+        "boxes": target["boxes"].cpu().numpy(),
+        "labels": target["labels"].cpu().numpy(),
+        "masks": target["masks"].cpu().numpy(),
+        "image_id": target["image_id"].cpu().numpy(),
+        "area": target["area"].cpu().numpy(),
+        "iscrowd": target["iscrowd"].cpu().numpy(),
+        "orignal_mask": target["orignal_mask"].cpu().numpy(),
     }
     np.savez_compressed(filepath, **target)
+
 
 if __name__ == "__main__":
     main()
