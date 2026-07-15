@@ -61,7 +61,6 @@ class ModelBuilder:
         
         model = ExtendedMaskRCNN(**model_params)
 
-        # Load checkpoint only if start_epochs != 0
         self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "no checkpoint path specified")
 
         if self.ckpt_path != "":
@@ -93,13 +92,13 @@ class ModelBuilder:
                 other_params.append(param)
 
         param_groups = [
-            {"params": backbone_params, "lr": lr * 0.1},
+            {"params": backbone_params, "lr": lr * 1.0},
             {"params": other_params, "lr": lr},
         ]
 
-        for name, param in model.named_parameters():
-            if "norm" in name or "bn" in name:
-                param_groups.append({"params": [param], "weight_decay": 0.0, "lr": lr})
+        # for name, param in model.named_parameters():
+        #     if "norm" in name or "bn" in name:
+        #         param_groups.append({"params": [param], "weight_decay": 0.0, "lr": lr})
 
 
         return torch.optim.AdamW(param_groups, lr=lr, weight_decay=wd)

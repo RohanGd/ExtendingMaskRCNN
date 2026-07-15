@@ -132,9 +132,7 @@ def validation(model, loader_builder, exp_dir, device, epoch, logger, writer):
     
     make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["val"], pred_masks_dir=pred_masks_dir)
 
-    SEG_result = subprocess.run([f".{DATAPATH}/ExtendingMaskRCNN/SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
-stderr=subprocess.STDOUT,
-text=True).stdout.strip()
+    SEG_result = subprocess.run([f".{DATAPATH}/ExtendingMaskRCNN/SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout.strip()
     logger.info(f"VALIDATION SEG SCORE: {SEG_result}")
     try:
         writer.add_scalar("Val_SEG", float(SEG_result[SEG_result.find(':')+1:]), epoch)

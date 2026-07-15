@@ -20,7 +20,7 @@ class DataloaderBuilder:
         dataset = emrDataset(
             imgs_dir=self.imgs_dir[mode],
             masks_dir=self.masks_dir[mode],
-            n=num_slices_per_batch,
+            num_slices=num_slices_per_batch,
             dataset_name=dataset_name,
             logger=self.logger,
             mode=mode

@@ -159,24 +159,25 @@ def main():
     source = get_dataset_source(args.dataset, args.anisotropy)
     save_dir = create_new_dir_struct(source.output_name, args.output_root)
 
-    response = input(
-        "WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\n"
-        f"For dataset: {source.output_name}\n"
-        f"Seed: {args.seed}\n"
-        "Enter Y/N:    "
-    )
-    if response != "Y":
-        exit()
+    # response = input(
+    #     "WARNING: ARE YOU SURE YOU WANT TO RESHUFFLE TRAIN TEST AND VALIDATION SPLITS? Y/N\n"
+    #     f"For dataset: {source.output_name}\n"
+    #     f"Seed: {args.seed}\n"
+    #     "Enter Y/N:    "
+    # )
+    # if response != "Y":
+    #     exit()
 
     pairs = source.get_pairs()
     train_paths, test_paths, val_paths = train_test_val_split_on_paths(pairs, split=args.split, seed=args.seed)
+    save_name_digits = 6
 
     print("-" * 50, "\nCREATING VAL DATASET, number of volumes: ", len(val_paths))
-    create_dataset(val_paths, save_dir, source, type_="val")
+    create_dataset(val_paths, save_dir, source, type_="val", s=save_name_digits)
     print("-" * 50, "\nCREATING TEST DATASET, number of volumes: ", len(test_paths))
-    create_dataset(test_paths, save_dir, source, type_="test")
+    create_dataset(test_paths, save_dir, source, type_="test", s=save_name_digits)
     print("-" * 50, "\nCREATING TRAIN DATASET, number of volumes: ", len(train_paths))
-    create_dataset(train_paths, save_dir, source, type_="train")
+    create_dataset(train_paths, save_dir, source, type_="train", s=save_name_digits)
 
 
 def parse_args():
@@ -220,12 +221,12 @@ def train_test_val_split_on_paths(pairs, split=SPLIT, seed=None):
     return train_paths, test_paths, val_paths
 
 
-def create_dataset(file_paths, save_dir, source, type_):
+def create_dataset(file_paths, save_dir, source, type_, s):
     metadata = dict()
     next_file_id = 0
     for idx, path_pair in enumerate(tqdm(file_paths)):
 
-        files_saved, next_file_id = make(path_pair, idx, next_file_id, save_dir, type_, source)
+        files_saved, next_file_id = make(path_pair, idx, next_file_id, save_dir, type_, source, s)
         metadata[idx] = files_saved
     
     metadata_file_path = Path(save_dir) / type_ / "metadata.json"
@@ -328,7 +329,7 @@ def get_target_from_mask(mask, image_id):
     return target
 
 
-def make(path_pair, volume_idx, next_file_id, save_dir, type_, source):
+def make(path_pair, volume_idx, next_file_id, save_dir, type_, source, s):
     image, mask = source.read_volume(path_pair)
 
     assert image.shape[0] == mask.shape[0], f"Mismatch between number of slices of mask and image for {path_pair}"
@@ -342,24 +343,24 @@ def make(path_pair, volume_idx, next_file_id, save_dir, type_, source):
         img_slice = image[slice_idx].cpu().numpy().copy()
         mask_slice = mask[slice_idx]
 
-        save_slice_worker((img_slice, mask_slice, next_file_id, save_dir, type_))
+        save_slice_worker((img_slice, mask_slice, next_file_id, save_dir, type_, s))
         files_saved.append(next_file_id)
         next_file_id += 1
     return files_saved, next_file_id
 
 def save_slice_worker(args):
-    img_slice, mask_slice, file_id, save_dir, type_ = args
+    img_slice, mask_slice, file_id, save_dir, type_, s = args
     save_as_2d_slice(slice_data=img_slice, file_id=file_id, save_dir=save_dir, type_=type_)
     target = get_target_from_mask(mask=mask_slice, image_id=file_id)
     save_target(target, file_id=file_id, type_=type_, save_dir=save_dir)
 
-def save_as_2d_slice(slice_data, file_id, save_dir, type_):
-    filepath = Path(save_dir) / type_ / "imgs" / f"{str(file_id).zfill(6)}.npy"
+def save_as_2d_slice(slice_data, file_id, save_dir, type_, s):
+    filepath = Path(save_dir) / type_ / "imgs" / f"{str(file_id).zfill(s)}.npy"
     np.save(filepath, slice_data)
 
 
-def save_target(target, file_id, type_, save_dir):
-    filepath = Path(save_dir) / type_ / "masks" / f"{str(file_id).zfill(6)}.npz"
+def save_target(target, file_id, type_, save_dir, s):
+    filepath = Path(save_dir) / type_ / "masks" / f"{str(file_id).zfill(s)}.npz"
 
     target = {
         "boxes": target["boxes"].cpu().numpy(),
