@@ -17,7 +17,7 @@ import os
 from torch.utils.data import Dataset
 import tifffile as tiff
 import torch
-from emrConfigManager import setup_logger, DATAPATH
+from emrConfigManager import setup_logger, DATASETS_PATH
 import warnings
 import numpy
 import json
@@ -37,9 +37,9 @@ class emrDataset(Dataset):
         self.mode = mode
         self.n = num_slices
         try:
-            self.img_files = sorted(os.listdir(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/imgs/"))
-            self.mask_files = sorted(os.listdir(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/masks/"))
-            self.metadata = json.load(fp=open(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/metadata.json", encoding="utf-8"))
+            self.img_files = sorted(os.listdir(f"{DATASETS_PATH}/{self.dataset_name}/{self.mode}/imgs/"))
+            self.mask_files = sorted(os.listdir(f"{DATASETS_PATH}/{self.dataset_name}/{self.mode}/masks/"))
+            self.metadata = json.load(fp=open(f"{DATASETS_PATH}/{self.dataset_name}/{self.mode}/metadata.json", encoding="utf-8"))
         except FileNotFoundError:
             raise FileNotFoundError("Cannot find the required folder. Run dataSplitter.py to create dataset.")
 
@@ -94,7 +94,7 @@ class emrDataset(Dataset):
                 eps = 1e-8 
                 img_slice = torch.ones(size=(self.H, self.W)) * eps
             else:
-                img_slice = numpy.load(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/imgs/{str(slice_idx).zfill(self.s)}.npy")
+                img_slice = numpy.load(f"{DATASETS_PATH}/{self.dataset_name}/{self.mode}/imgs/{str(slice_idx).zfill(self.s)}.npy")
                 img_slice = torch.from_numpy(img_slice)
             img_slices.append(img_slice)
         
@@ -102,7 +102,7 @@ class emrDataset(Dataset):
 
         # mask / target
         slice_idx = idx
-        target_npz = numpy.load(f"{DATAPATH}/datasets/{self.dataset_name}/{self.mode}/masks/{str(slice_idx).zfill(self.s)}.npz")
+        target_npz = numpy.load(f"{DATASETS_PATH}/{self.dataset_name}/{self.mode}/masks/{str(slice_idx).zfill(self.s)}.npz")
         target = dict()
         for key in target_npz:
             target[key] = torch.from_numpy(target_npz[key])

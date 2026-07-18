@@ -6,7 +6,7 @@ from emrMetrics import emrMetrics
 import sys, os, subprocess
 import torch, numpy, tifffile
 from datetime import datetime
-from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger, Fusion_Logger, DATAPATH
+from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger, Fusion_Logger, REPO_ROOT
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
 from multiprocessing import freeze_support
@@ -60,7 +60,7 @@ def test_emr(config_file):
     end_time = datetime.now()
     logger.info(f"TIME TAKEN: {end_time - start_time}")
 
-    SEG_result = subprocess.run([f".{DATAPATH}/ExtendingMaskRCNN/SEGMeasure", f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
+    SEG_result = subprocess.run([str(REPO_ROOT / "SEGMeasure"), f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True)
     logger.info(f"Mean Semantic 3d IoU: {metrics.mean_semantic_3d_iou(exp_dir)}")

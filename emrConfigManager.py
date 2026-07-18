@@ -5,12 +5,26 @@ import logging
 from json import dumps as json_dumps
 import pandas as pd
 from torch import Tensor
-import platform
 from pathlib import Path
 
-# Better: check for a specific cluster environment rather than a single node
-IS_MANGI = platform.node() == "mangilinux"
-DATAPATH = Path("") if IS_MANGI else Path("/netscratch/gadgil/")
+# Detect the Pegasus cluster by its mounts rather than by hostname, so any
+# machine without these mounts (laptop, CI, ...) falls back to local paths.
+IS_CLUSTER = os.path.isdir("/netscratch") and os.path.isdir("/ds")
+
+REPO_ROOT = Path(__file__).resolve().parent
+
+# /netscratch/$USER: scratch space for temp files, experiment results, checkpoints. No backup.
+# See https://pegasus.dfki.de/docs/guidelines/storage/
+NETSCRATCH_PATH = Path("/netscratch") / os.environ["USER"] if IS_CLUSTER else REPO_ROOT
+
+# /ds/3d/cellular: shared dataset share. The generated (final) train/test/val datasets live here.
+DS_PATH = Path("/ds/3d/cellular") if IS_CLUSTER else REPO_ROOT
+
+# Raw downloaded/unzipped source data, staged before dataset generation.
+DATA_PATH = NETSCRATCH_PATH / "data" if IS_CLUSTER else REPO_ROOT / "data"
+
+# Generated 2D-slice datasets (output of datasetGenerator.py, input to emrDataset/emrDataloader).
+DATASETS_PATH = DS_PATH if IS_CLUSTER else REPO_ROOT / "datasets"
 
 
 class emrConfigManager:
@@ -66,7 +80,7 @@ def create_experiment_folder(cfg, mode):
     Returns:
         exp_dir, name, log_file
     """
-    root = f"{DATAPATH}/Experiments"
+    root = NETSCRATCH_PATH / "Experiments"
     name = cfg.get("EXPERIMENT", "exp_name")
 
     t = time.strftime("%Y%m%d_%H%M%S")

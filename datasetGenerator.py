@@ -11,27 +11,22 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from emrConfigManager import DATAPATH
+from emrConfigManager import DATA_PATH, DATASETS_PATH, REPO_ROOT
 
 
 DEFAULT_DATASET = "ATAS"
 SPLIT_SEED = 42
 SPLIT = (0.75, 0.15, 0.10)
-BENCHMARK_ROOT = Path("data/Cell_Segmentation_Beyond_2D_Benchmark_Dataset")
-DATASETS_ROOT = Path("datasets")
+BENCHMARK_ROOT = DATA_PATH / "Cell_Segmentation_Beyond_2D_Benchmark_Dataset"
 
 
 def resolve_path(path):
+    """Resolve a raw-data path, falling back to cwd or the repo root if not found where expected."""
     path = Path(path)
-    candidates = [
-        path,
-        Path(__file__).resolve().parent / path,
-        Path(DATAPATH) / path,
-    ]
-    for candidate in candidates:
+    for candidate in (path, REPO_ROOT / path):
         if candidate.exists():
             return candidate
-    return candidates[1]
+    return path
 
 
 @dataclass(frozen=True)
@@ -83,7 +78,7 @@ class CellTrackingTiffSource(DatasetSource):
     def __init__(self, name, root=None):
         self.name = name
         self.output_name = name
-        self.root = resolve_path(root or Path("data") / name)
+        self.root = resolve_path(root or DATA_PATH / name)
 
     def get_pairs(self):
         pairs = []
@@ -100,11 +95,11 @@ class CellTrackingTiffSource(DatasetSource):
 
 
 class SpheroidNrrdSource(DatasetSource):
-    def __init__(self, anisotropy="High", root=Path("data/12spheroids")):
+    def __init__(self, anisotropy="High", root=None):
         self.name = "12spheroids"
         self.anisotropy = anisotropy
         self.output_name = f"12spheroids_{anisotropy}"
-        self.root = resolve_path(root)
+        self.root = resolve_path(root or DATA_PATH / "12spheroids")
 
     def get_pairs(self):
         if self.anisotropy == "High":
@@ -186,7 +181,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=SPLIT_SEED)
     parser.add_argument("--split", nargs=3, type=float, default=SPLIT, metavar=("TRAIN", "TEST", "VAL"))
     parser.add_argument("--anisotropy", choices=["High", "Low"], default="High")
-    parser.add_argument("--output-root", type=Path, default=DATASETS_ROOT)
+    parser.add_argument("--output-root", type=Path, default=DATASETS_PATH)
     return parser.parse_args()
 
 
@@ -350,9 +345,9 @@ def make(path_pair, volume_idx, next_file_id, save_dir, type_, source, s):
 
 def save_slice_worker(args):
     img_slice, mask_slice, file_id, save_dir, type_, s = args
-    save_as_2d_slice(slice_data=img_slice, file_id=file_id, save_dir=save_dir, type_=type_)
+    save_as_2d_slice(slice_data=img_slice, file_id=file_id, save_dir=save_dir, type_=type_, s=s)
     target = get_target_from_mask(mask=mask_slice, image_id=file_id)
-    save_target(target, file_id=file_id, type_=type_, save_dir=save_dir)
+    save_target(target, file_id=file_id, type_=type_, save_dir=save_dir, s=s)
 
 def save_as_2d_slice(slice_data, file_id, save_dir, type_, s):
     filepath = Path(save_dir) / type_ / "imgs" / f"{str(file_id).zfill(s)}.npy"
