@@ -31,6 +31,7 @@ class ModelBuilder:
         early_mlp_reduction = self.cfg.get_int("MODEL", "early_mlp_reduction", 16)
         early_mlp_bias = self.cfg.get("MODEL", "early_mlp_bias", "None")
         roi_heads_fusion = self.cfg.get("MODEL", "roi_heads_fusion", "None")
+        backbone = self.cfg.get("MODEL", "backbone", None) # None (default resnet50) or "Swin"
 
 
         model_params = {
@@ -54,7 +55,8 @@ class ModelBuilder:
             'early_mlp_fusion': early_mlp_fusion,
             'early_mlp_reduction': early_mlp_reduction,
             'early_mlp_bias': early_mlp_bias,
-            'roi_heads_fusion': roi_heads_fusion
+            'roi_heads_fusion': roi_heads_fusion,
+            'backbone': backbone
         }
 
         self.logger.info(f"MODEL PARAMS: {model_params}")

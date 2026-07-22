@@ -17,14 +17,14 @@ REPO_ROOT = Path(__file__).resolve().parent
 # See https://pegasus.dfki.de/docs/guidelines/storage/
 NETSCRATCH_PATH = Path("/netscratch") / os.environ["USER"] if IS_CLUSTER else REPO_ROOT
 
-# /ds/3d/cellular: shared dataset share. The generated (final) train/test/val datasets live here.
-DS_PATH = Path("/ds/3d/cellular") if IS_CLUSTER else REPO_ROOT
-
 # Raw downloaded/unzipped source data, staged before dataset generation.
 DATA_PATH = NETSCRATCH_PATH / "data" if IS_CLUSTER else REPO_ROOT / "data"
 
 # Generated 2D-slice datasets (output of datasetGenerator.py, input to emrDataset/emrDataloader).
-DATASETS_PATH = DS_PATH if IS_CLUSTER else REPO_ROOT / "datasets"
+# /ds is a read-only dataset share on the cluster (see https://pegasus.dfki.de/docs/guidelines/storage/:
+# "dataset shares, read from here, don't write") -- jobs mount it :ro, so datasets we generate
+# ourselves live in netscratch instead, alongside other per-user experiment output.
+DATASETS_PATH = NETSCRATCH_PATH / "datasets" if IS_CLUSTER else REPO_ROOT / "datasets"
 
 
 class emrConfigManager:

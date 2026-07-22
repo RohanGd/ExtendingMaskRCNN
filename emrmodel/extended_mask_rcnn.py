@@ -1,5 +1,6 @@
 from emrmodel.mask_rcnn import MaskRCNN
 from emrmodel.stacked_fpn_backbone import Stacked_Resnet50FPN_Backbone
+from emrmodel.swin_fpn_backbone import SwinFPNBackbone, Stacked_SwinFPN_Backbone
 from emrmodel.early_mlp_fusion import SliceSEFusion, SliceSEFusionFixedWindow, IdentityFusion, SlicePixelAttention, SliceSEFusionPerFPN, SlicePixelAttentionPerFPN
 from torchvision.models.detection.backbone_utils import _validate_trainable_layers, _resnet_fpn_extractor
 from torchvision.models.resnet import resnet50, ResNet50_Weights
@@ -25,11 +26,15 @@ class ExtendedMaskRCNN(MaskRCNN):
                 backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=norm_layer)
                 backbone = _resnet_fpn_extractor(backbone, trainable_backbone_layers)
                 in_channels = num_slices_per_batch # number of input slices
-                backbone.body.conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)   
+                backbone.body.conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            elif backbone == "Swin":
+                backbone = SwinFPNBackbone(in_channels=num_slices_per_batch) # all n slices stacked as channels, same "channel fusion" strategy as the resnet50 path
         else:
             if backbone == None:
-                backbone = Stacked_Resnet50FPN_Backbone(num_slices=num_slices_per_batch)     
-       
+                backbone = Stacked_Resnet50FPN_Backbone(num_slices=num_slices_per_batch)
+            elif backbone == "Swin":
+                backbone = Stacked_SwinFPN_Backbone(num_slices=num_slices_per_batch)
+
         if image_mean == None:
             image_mean = [0 for _ in range(num_slices_per_batch)]
         if image_std == None:
