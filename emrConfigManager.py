@@ -13,9 +13,12 @@ IS_CLUSTER = os.path.isdir("/netscratch") and os.path.isdir("/ds")
 
 REPO_ROOT = Path(__file__).resolve().parent
 
-# /netscratch/$USER: scratch space for temp files, experiment results, checkpoints. No backup.
+# /netscratch/gadgil: scratch space for temp files, experiment results, checkpoints. No backup.
 # See https://pegasus.dfki.de/docs/guidelines/storage/
-NETSCRATCH_PATH = Path("/netscratch") / os.environ["USER"] if IS_CLUSTER else REPO_ROOT
+# Hardcoded rather than os.environ["USER"]: jobs on Pegasus run inside a SLURM/enroot
+# container as root, so $USER resolves to "root" rather than the submitting user, and
+# only /netscratch/gadgil is bind-mounted (see slurm/submit.sh), not /netscratch/root.
+NETSCRATCH_PATH = Path("/netscratch/gadgil") if IS_CLUSTER else REPO_ROOT
 
 # Raw downloaded/unzipped source data, staged before dataset generation.
 DATA_PATH = NETSCRATCH_PATH / "data" if IS_CLUSTER else REPO_ROOT / "data"

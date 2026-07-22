@@ -1,4 +1,5 @@
 import numpy as np
+import json
 
 from skimage.measure import label
 import os, shutil
@@ -217,12 +218,25 @@ def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir):
     # -------------------------
     # Step 3: map index → (T, Z)
     # -------------------------
+    # Files are flat slice ids (e.g. "000000.npz"); the mapping from a flat id
+    # to its (volume, local-slice-index) lives in metadata.json, since volumes
+    # no longer have a consistent slice count baked into the filename.
+    metadata_path = os.path.join(os.path.dirname(target_masks_dir), "metadata.json")
+    with open(metadata_path, encoding="utf-8") as fp:
+        metadata = json.load(fp)
+
+    idx_to_volume = {}
+    for T, ids in metadata.items():
+        for z, file_idx in enumerate(ids):
+            idx_to_volume[file_idx] = (T, z)
+
     slices_by_T = defaultdict(list)
 
     for idx, gt_name in enumerate(gt_files):
-        T, Z = gt_name.replace(".npz", "").split("_")
+        file_idx = int(gt_name.replace(".npz", ""))
+        T, Z = idx_to_volume[file_idx]
         pred_path = os.path.join(pred_masks_dir, pred_files[idx])
-        slices_by_T[T].append((int(Z), pred_path))
+        slices_by_T[T].append((Z, pred_path))
 
     # -------------------------
     # Step 4: per-T processing
@@ -252,12 +266,14 @@ def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir):
         # ---- GT (copy or reconstruct) ----
         # safest option: reuse original GT volumes if available
         # otherwise reconstruct binary → CC same as preds
+        gt_name_by_idx = {int(f.replace(".npz", "")): f for f in gt_files}
         gt_slices = []
-        for gt_name in gt_files:
-            if gt_name.startswith(T + "_"):
-                gt_path = os.path.join(target_masks_dir, gt_name)
-                data = np.load(gt_path, allow_pickle=True)
-                gt_slices.append(data["orignal_mask"])
+        for file_idx in metadata[T]:
+            if file_idx not in gt_name_by_idx:
+                continue
+            gt_path = os.path.join(target_masks_dir, gt_name_by_idx[file_idx])
+            data = np.load(gt_path, allow_pickle=True)
+            gt_slices.append(data["orignal_mask"])
 
         # gt_3d = label(np.stack(gt_slices, axis=0), connectivity=1)
         gt_3d = np.stack(gt_slices)
