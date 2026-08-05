@@ -73,7 +73,7 @@ class ModelBuilder:
             else:
                 self.logger.warning(f"Checkpoint not found: {self.ckpt_path}")
         else:
-            self.logger.info(f"Created model.")
+            self.logger.info(f"Created model with config: {self.cfg.path}")
 
         self.logger.info(f"PRINTING MODEL ARCHITECTURE: {model}")
         return model
