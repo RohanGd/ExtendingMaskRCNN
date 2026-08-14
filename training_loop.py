@@ -48,8 +48,10 @@ def train_emr(config_file):
     print(f"Total model params: {total_params}")
     # training loop
     global_iterations = 0
-    logger.info(f"Training model on dataset: {train_dataset.dataset_name} for {num_epochs} epochs.")
-    for epoch in range(num_epochs):
+    start_epoch = model_init.start_epoch
+    end_epoch = start_epoch + num_epochs
+    logger.info(f"Training model on dataset: {train_dataset.dataset_name} for {num_epochs} epochs (epochs {start_epoch + 1} to {end_epoch}).")
+    for epoch in range(start_epoch, end_epoch):
         # training
         model.train()
         start_epoch_time = datetime.now()
@@ -84,11 +86,15 @@ def train_emr(config_file):
                 writer.add_scalar(f'Loss/{loss_name}', loss_value.item(), global_iterations)
             writer.add_scalar("Total Loss", loss, global_iterations)
         
-        writer.add_scalar("Epoch Loss", epoch_loss/len(train_dataloader), epoch)        
+        writer.add_scalar("Epoch Loss", epoch_loss/len(train_dataloader), epoch)
         end_epoch_time = datetime.now()
-        logger.info(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}")
-        ckpt_path = f"{exp_dir}/({epoch+1}_of_{num_epochs}).pt"
-        torch.save(model.state_dict(), f=ckpt_path)
+        logger.info(f"Epoch {epoch+1}/{end_epoch}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}")
+        ckpt_path = f"{exp_dir}/({epoch+1}_of_{end_epoch}).pt"
+        torch.save({
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epoch": epoch + 1,
+        }, f=ckpt_path)
         logger.info(f"Model Saved at location: {ckpt_path}")
 
         if cfg.get_bool("LOOP", "VALIDATION", False):
@@ -99,7 +105,11 @@ def train_emr(config_file):
                 epochs_without_improvement = 0
 
                 best_ckpt = f"{exp_dir}/best_model.pt"
-                torch.save(model.state_dict(), best_ckpt)
+                torch.save({
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "epoch": epoch + 1,
+                }, best_ckpt)
                 logger.info(f"New best model saved: {best_ckpt}")
 
             else:
@@ -157,14 +167,6 @@ def validation(model, loader_builder, exp_dir, device, epoch, logger, writer):
     writer.add_scalar("Val_loss", val_loss_avg, epoch)
 
     return val_loss_avg
-
-def freeze_backbone(model):
-    """Freeze backbone parameters to prevent weight updates"""
-    if hasattr(model, 'backbone'):
-        for param in model.backbone.parameters():
-            param.requires_grad = False
-
-
 
 if __name__ == "__main__":
     freeze_support()

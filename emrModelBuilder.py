@@ -7,7 +7,8 @@ class ModelBuilder:
     def __init__(self, cfg, logger):
         self.cfg = cfg
         self.logger = logger
-        self.start_epochs = 0
+        self.start_epoch = 0
+        self.optimizer_state_dict = None
 
     def load_model(self, dataset_name="None"):
         num_slices_per_batch = self.cfg.get_int("MODEL", "num_slices_per_batch", 3)
@@ -64,12 +65,31 @@ class ModelBuilder:
         model = ExtendedMaskRCNN(**model_params)
 
         self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "no checkpoint path specified")
+        self.freeze_backbone = self.cfg.get_bool("LOOP", "freeze_backbone", False)
 
         if self.ckpt_path != "":
             if os.path.exists(self.ckpt_path):
                 checkpoint = torch.load(self.ckpt_path, weights_only=True)
-                model.load_state_dict(checkpoint)
-                self.logger.info(f"Loaded model: {self.ckpt_path}")
+                # older checkpoints are a bare model.state_dict(); newer ones are
+                # {"model_state_dict", "optimizer_state_dict", "epoch"}
+                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                    model_state_dict = checkpoint["model_state_dict"]
+                else:
+                    model_state_dict = checkpoint
+
+                if self.freeze_backbone:
+                    backbone_state_dict = {k: v for k, v in model_state_dict.items() if k.startswith("backbone.")}
+                    model.load_state_dict(backbone_state_dict, strict=False)
+                    for name, param in model.named_parameters():
+                        if name.startswith("backbone."):
+                            param.requires_grad = False
+                    self.logger.info(f"Loaded and froze backbone weights from: {self.ckpt_path}")
+                else:
+                    model.load_state_dict(model_state_dict)
+                    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                        self.start_epoch = checkpoint.get("epoch", 0)
+                        self.optimizer_state_dict = checkpoint.get("optimizer_state_dict")
+                    self.logger.info(f"Loaded model: {self.ckpt_path}, resuming from epoch {self.start_epoch}")
             else:
                 self.logger.warning(f"Checkpoint not found: {self.ckpt_path}")
         else:
@@ -103,4 +123,10 @@ class ModelBuilder:
         #         param_groups.append({"params": [param], "weight_decay": 0.0, "lr": lr})
 
 
-        return torch.optim.AdamW(param_groups, lr=lr, weight_decay=wd)
+        optimizer = torch.optim.AdamW(param_groups, lr=lr, weight_decay=wd)
+
+        if self.optimizer_state_dict is not None:
+            optimizer.load_state_dict(self.optimizer_state_dict)
+            self.logger.info(f"Resumed optimizer state from: {self.ckpt_path}")
+
+        return optimizer
