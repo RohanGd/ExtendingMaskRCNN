@@ -9,13 +9,14 @@ from emrConfigManager import emrConfigManager, create_experiment_folder, setup_l
 from emrDataloader import DataloaderBuilder
 from emrModelBuilder import ModelBuilder
 from SEG_helper_functions import save_preds, make_files_for_SEG
+from metrics.metrics_volume import emrMetricsVolume
 from torch.utils.tensorboard import SummaryWriter
 from multiprocessing import freeze_support
 
 def train_emr(config_file):
     # set seed
     torch.manual_seed(42)
-    
+
     cfg = emrConfigManager(config_file)
     exp_dir,exp_name, log_file = create_experiment_folder(cfg, mode="train")
     logger = setup_logger(log_file, name="train")
@@ -41,6 +42,7 @@ def train_emr(config_file):
     patience = cfg.get_int("LOOP", "early_stopping_patience", num_epochs)
     best_val_loss = float("inf")
     epochs_without_improvement = 0
+    best_ckpt_path = None
 
 
     writer = SummaryWriter(log_dir=exp_dir)
@@ -89,7 +91,7 @@ def train_emr(config_file):
         writer.add_scalar("Epoch Loss", epoch_loss/len(train_dataloader), epoch)
         end_epoch_time = datetime.now()
         logger.info(f"Epoch {epoch+1}/{end_epoch}, Average Loss: {epoch_loss/len(train_dataloader):.4f}, Time for Epoch: {end_epoch_time - start_epoch_time}")
-        ckpt_path = f"{exp_dir}/({epoch+1}_of_{end_epoch}).pt"
+        ckpt_path = f"{exp_dir}/epoch{epoch+1}.pt"
         torch.save({
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
@@ -97,20 +99,25 @@ def train_emr(config_file):
         }, f=ckpt_path)
         logger.info(f"Model Saved at location: {ckpt_path}")
 
-        if cfg.get_bool("LOOP", "VALIDATION", False):
+        validation_enabled = cfg.get_bool("LOOP", "VALIDATION", False)
+        if validation_enabled:
             val_loss = validation(model, loader_builder, exp_dir, device, epoch, logger, writer)
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 epochs_without_improvement = 0
 
-                best_ckpt = f"{exp_dir}/best_model.pt"
+                # filename embeds the epoch, so the previous best (if any) is removed
+                # rather than overwritten in place
+                if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
+                    os.remove(best_ckpt_path)
+                best_ckpt_path = f"{exp_dir}/best_model_epoch{epoch+1}.pt"
                 torch.save({
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "epoch": epoch + 1,
-                }, best_ckpt)
-                logger.info(f"New best model saved: {best_ckpt}")
+                }, best_ckpt_path)
+                logger.info(f"New best model saved: {best_ckpt_path}")
 
             else:
                 epochs_without_improvement += 1
@@ -119,7 +126,12 @@ def train_emr(config_file):
             if epochs_without_improvement >= patience:
                 logger.info("Early stopping triggered")
                 break
-        
+
+    # prefer the best-val-loss checkpoint (if early stopping/validation was used and
+    # found one) over the last epoch's -- this is the checkpoint callers like
+    # run_train_test_pipeline.py should test with
+    if validation_enabled and best_ckpt_path is not None:
+        return best_ckpt_path
     return ckpt_path
 
 def validation(model, loader_builder, exp_dir, device, epoch, logger, writer):
@@ -142,12 +154,9 @@ def validation(model, loader_builder, exp_dir, device, epoch, logger, writer):
     
     make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["val"], pred_masks_dir=pred_masks_dir)
 
-    SEG_result = subprocess.run([str(REPO_ROOT / "SEGMeasure"), f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout.strip()
-    logger.info(f"VALIDATION SEG SCORE: {SEG_result}")
-    try:
-        writer.add_scalar("Val_SEG", float(SEG_result[SEG_result.find(':')+1:]), epoch)
-    except:
-        pass
+    val_seg = emrMetricsVolume(exp_dir).seg_score()
+    logger.info(f"VALIDATION SEG SCORE: {val_seg['mean']}")
+    writer.add_scalar("Val_SEG", val_seg["mean"], epoch)
 
     model.train()
     val_loss_total = 0.0

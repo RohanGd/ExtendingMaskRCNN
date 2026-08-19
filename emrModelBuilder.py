@@ -64,36 +64,49 @@ class ModelBuilder:
         
         model = ExtendedMaskRCNN(**model_params)
 
-        self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "no checkpoint path specified")
+        self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "")
+        self.backbone_ckpt_path = self.cfg.get("LOOP", "backbone_ckpt_path", "")
         self.freeze_backbone = self.cfg.get_bool("LOOP", "freeze_backbone", False)
 
-        if self.ckpt_path != "":
-            if os.path.exists(self.ckpt_path):
-                checkpoint = torch.load(self.ckpt_path, weights_only=True)
-                # older checkpoints are a bare model.state_dict(); newer ones are
-                # {"model_state_dict", "optimizer_state_dict", "epoch"}
-                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                    model_state_dict = checkpoint["model_state_dict"]
-                else:
-                    model_state_dict = checkpoint
+        if self.ckpt_path and self.backbone_ckpt_path:
+            raise ValueError(
+                "[LOOP] has both ckpt_path and backbone_ckpt_path set -- set only one."
+            )
 
-                if self.freeze_backbone:
-                    backbone_state_dict = {k: v for k, v in model_state_dict.items() if k.startswith("backbone.")}
-                    model.load_state_dict(backbone_state_dict, strict=False)
-                    for name, param in model.named_parameters():
-                        if name.startswith("backbone."):
-                            param.requires_grad = False
-                    self.logger.info(f"Loaded and froze backbone weights from: {self.ckpt_path}")
-                else:
-                    model.load_state_dict(model_state_dict)
-                    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                        self.start_epoch = checkpoint.get("epoch", 0)
-                        self.optimizer_state_dict = checkpoint.get("optimizer_state_dict")
-                    self.logger.info(f"Loaded model: {self.ckpt_path}, resuming from epoch {self.start_epoch}")
+        def _model_state_dict(path):
+            checkpoint = torch.load(path, weights_only=True)
+            # older checkpoints are a bare model.state_dict(); newer ones are
+            # {"model_state_dict", "optimizer_state_dict", "epoch"}
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                return checkpoint["model_state_dict"], checkpoint
+            return checkpoint, None
+
+        if self.backbone_ckpt_path:
+            if os.path.exists(self.backbone_ckpt_path):
+                model_state_dict, _ = _model_state_dict(self.backbone_ckpt_path)
+                backbone_state_dict = {k: v for k, v in model_state_dict.items() if k.startswith("backbone.")}
+                model.load_state_dict(backbone_state_dict, strict=False)
+                self.logger.info(f"Loaded backbone weights from: {self.backbone_ckpt_path}")
+            else:
+                self.logger.warning(f"backbone_ckpt_path not found: {self.backbone_ckpt_path}")
+        elif self.ckpt_path:
+            if os.path.exists(self.ckpt_path):
+                model_state_dict, full_checkpoint = _model_state_dict(self.ckpt_path)
+                model.load_state_dict(model_state_dict)
+                if full_checkpoint is not None:
+                    self.start_epoch = full_checkpoint.get("epoch", 0)
+                    self.optimizer_state_dict = full_checkpoint.get("optimizer_state_dict")
+                self.logger.info(f"Loaded full model: {self.ckpt_path}, resuming from epoch {self.start_epoch}")
             else:
                 self.logger.warning(f"Checkpoint not found: {self.ckpt_path}")
         else:
             self.logger.info(f"Created model with config: {self.cfg.path}")
+
+        if self.freeze_backbone:
+            for name, param in model.named_parameters():
+                if name.startswith("backbone."):
+                    param.requires_grad = False
+            self.logger.info("Backbone frozen.")
 
         self.logger.info(f"PRINTING MODEL ARCHITECTURE: {model}")
         return model

@@ -2,8 +2,9 @@
 usage python testing_loop.py configfilepath
 set dataset_name inside file
 '''
-from emrMetrics import emrMetrics
-import sys, os, subprocess
+from metrics.metrics_2d import emrMetrics2D
+from metrics.metrics_volume import emrMetricsVolume
+import sys, os, json
 import torch, numpy, tifffile
 from datetime import datetime
 from emrConfigManager import emrConfigManager, create_experiment_folder, setup_logger, Fusion_Logger, REPO_ROOT
@@ -14,7 +15,7 @@ from SEG_helper_functions import make_files_for_SEG, save_preds
 from tqdm import tqdm
 
 def test_emr(config_file):
-    torch.manual_seed(42) 
+    torch.manual_seed(42)
     # load configs and setup logger
     cfg = emrConfigManager(config_file)
     exp_dir, exp_name, log_file = create_experiment_folder(cfg, mode="test")
@@ -35,36 +36,49 @@ def test_emr(config_file):
     model = model.to(device=device)
     model.eval()
 
-    only_SEG_score = cfg.get_bool("LOOP", "only_SEG_score", 1)
+    overlap_thresholds = cfg.get_float_list("METRICS", "overlap_thresholds", [0.5, 0.75, 0.9])
+    acc_thresholds = cfg.get_float_list("METRICS", "acc_thresholds", [0.3, 0.5])
+    score_agg = cfg.get("METRICS", "volume_score_agg", "mean")
+    run_2d = cfg.get_bool("METRICS", "run_2d_metrics", True)
+    run_volume = cfg.get_bool("METRICS", "run_volume_metrics", True)
+
     # testing loop
     start_time = datetime.now()
-    metrics = emrMetrics(exp_dir)
+    metrics_2d = emrMetrics2D(overlap_thresholds=overlap_thresholds)
     with torch.no_grad():
         for images, targets in tqdm(test_dataloader):
             images = images.to(device)
             targets = [{k:v.to(device) for k, v in t_dict.items()} for t_dict in targets]
-            
+
             preds = model(images)
-            # save the pred masks in exp_dir/pred_masks
+            # save the pred masks (+ per-instance scores) in exp_dir/pred_masks
             save_preds(preds, pred_masks_dir)
 
-            if only_SEG_score == False: # this is slow, avoid if you only need SEG score
-                metrics.update(preds, targets)
+            if run_2d:
+                metrics_2d.update(preds, targets)
 
-    make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["test"], pred_masks_dir=pred_masks_dir)
+    make_files_for_SEG(exp_dir=exp_dir, target_masks_dir=loader_builder.masks_dir["test"],
+                        pred_masks_dir=pred_masks_dir, score_agg=score_agg)
     logger.info(Fusion_Logger.save())
-    logger.info(metrics)
-    metrics_results_save_path=f"{exp_dir}/test_metrics.txt"
-    metrics.save(path=metrics_results_save_path)
-    logger.info(f"Saved results to {metrics_results_save_path}")
+
+    results = {}
+    if run_2d:
+        results["2d"] = metrics_2d.compute()
+        logger.info(metrics_2d)
+        metrics_2d.save(path=f"{exp_dir}/test_metrics_2d.txt")
+
+    if run_volume:
+        metrics_vol = emrMetricsVolume(exp_dir, overlap_thresholds=overlap_thresholds, acc_thresholds=acc_thresholds)
+        results["volume"] = metrics_vol.compute()
+        logger.info(metrics_vol)
+        metrics_vol.save(path=f"{exp_dir}/test_metrics_volume.txt")
+
+    with open(f"{exp_dir}/test_metrics.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+
+    logger.info(f"Saved results to {exp_dir}/test_metrics_2d.txt, test_metrics_volume.txt, test_metrics.json")
     end_time = datetime.now()
     logger.info(f"TIME TAKEN: {end_time - start_time}")
-
-    SEG_result = subprocess.run([str(REPO_ROOT / "SEGMeasure"), f"{os.path.abspath(exp_dir)}", "01","4"], stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True)
-    logger.info(f"Mean Semantic 3d IoU: {metrics.mean_semantic_3d_iou(exp_dir)}")
-    logger.info(f"SEG score CLI Tool: {SEG_result.stdout.strip()}")
 
 if __name__ == "__main__":
     freeze_support()

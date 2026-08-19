@@ -2,7 +2,7 @@ import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print(sys.path)
 
-from emrMetrics import emrMetrics
+from metrics.metrics_2d import emrMetrics2D
 import sys
 import torch
 from datetime import datetime
@@ -109,7 +109,7 @@ print_rate = cfg.get_int("LOOP", "print_rate", 10)
 # testing loop
 start_time = datetime.now()
 with torch.no_grad():
-    metrics = emrMetrics()
+    metrics = emrMetrics2D()
     i = 0
     batch_start_time = datetime.now()
     for images, targets in test_dataloader:

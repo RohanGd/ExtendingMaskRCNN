@@ -10,21 +10,30 @@ from scipy.optimize import linear_sum_assignment
 import torchvision, torch
 
 
-def save_preds(preds, save_dir):
+def save_preds(preds, save_dir, save_scores=True):
     """
     Saves the predicted mask from a model into the specified save dir as a .tif file.
-    
-    :param preds: preds["masks"] (num_preds, 1, H, W)
+    When save_scores is True, also writes a sibling {idx}.scores.npy per slice
+    (flat [num_instances] float32, same order as the tif's instance axis) so
+    per-instance confidence can be propagated through hungarian_matching_across
+    into volume-level average precision.
+
+    :param preds: preds["masks"] (num_preds, 1, H, W), preds["scores"] (num_preds,)
     :param save_dir: path to save, generally exp_dir/pred_masks
     """
     warnings.filterwarnings("ignore", message=".*writing zero-size array to nonconformant TIFF")
-    num_files = len(os.listdir(save_dir))
+    num_files = len([f for f in os.listdir(save_dir) if f.endswith(".tif")])
     for i, pred in enumerate(preds): # Batch size
         pred_mask = pred["masks"] # torch.tensor
         pred_mask = (pred_mask > 0.5).bool()
         # this is of shape: [num_instances, 1, H, W]
         save_name = save_dir + f"/{str(num_files + i).zfill(5)}.tif"
         tifffile.imwrite(save_name, pred_mask.detach().cpu().numpy().astype(np.uint16))
+
+        if save_scores:
+            scores = pred.get("scores", torch.empty(0))
+            scores_name = save_dir + f"/{str(num_files + i).zfill(5)}.scores.npy"
+            np.save(scores_name, scores.detach().cpu().numpy().astype(np.float32))
 
 
 
@@ -44,6 +53,14 @@ def load_binary_pred_slice(pred_path):
         pred = pred[:, 0]
     # pred: (N, 1, H, W)
     return pred.astype(np.uint8)
+
+def load_slice_scores(pred_path):
+    """Loads the sibling {name}.scores.npy for a {name}.tif pred slice, if present.
+    Returns a flat [N] float array (N = that slice's instance count), or None."""
+    scores_path = pred_path[:-len(".tif")] + ".scores.npy" if pred_path.endswith(".tif") else None
+    if scores_path is None or not os.path.exists(scores_path):
+        return None
+    return np.load(scores_path)
 
 def binary_OR(array):
     return np.any(array, axis=(0))
@@ -81,7 +98,7 @@ def save_renamed_preds(target_masks_file_paths, pred_masks_dir, output_dir):
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    pred_masks_file_paths = sorted(os.listdir(pred_masks_dir))
+    pred_masks_file_paths = sorted(f for f in os.listdir(pred_masks_dir) if f.endswith(".tif"))
     target_masks_file_paths = sorted(target_masks_file_paths)
 
     assert len(target_masks_file_paths) == len(pred_masks_file_paths)
@@ -91,6 +108,11 @@ def save_renamed_preds(target_masks_file_paths, pred_masks_dir, output_dir):
         src_path = os.path.join(pred_masks_dir, pred_masks_file_paths[i])
         dst_path = os.path.join(output_dir, target_name)
         shutil.copy(src_path, dst_path)
+
+        scores_src_path = src_path[:-len(".tif")] + ".scores.npy"
+        if os.path.exists(scores_src_path):
+            scores_dst_path = os.path.join(output_dir, target_name.replace(".tif", ".scores.npy"))
+            shutil.copy(scores_src_path, scores_dst_path)
 
 
 
@@ -112,8 +134,37 @@ def compute_iou_matrix(masks1, masks2):
     return iou
 
 
-def hungarian_matching_across(slice_paths, iou_threshold=0.5):
+def hungarian_matching_across(slice_paths, iou_threshold=0.5, score_agg="mean"):
+    """
+    Links per-slice predicted instances into persistent 3D instance ids via
+    Hungarian IoU matching between consecutive Z slices.
+
+    Also propagates each 2D detection's confidence score (from the sibling
+    {name}.scores.npy files, if present) into a per-linked-3D-instance aggregated
+    score, needed for volume-level average precision (2D scores alone don't survive
+    the Z-linking step otherwise). score_agg: "mean" or "max".
+
+    Returns: (volume [Z,H,W] int32 instance-labeled, linked_scores: Dict[global_id, float]).
+    linked_scores is empty if no sibling .scores.npy files were found.
+    """
+    assert score_agg in ("mean", "max"), f"score_agg must be 'mean' or 'max', got {score_agg!r}"
+
     slices = [load_binary_pred_slice(p) for p in slice_paths]
+    slice_scores = [load_slice_scores(p) for p in slice_paths]
+
+    # Drop all-zero-pixel "instances" (a mask that never exceeds the >0.5 threshold
+    # anywhere -- common with a weak/untrained model at a permissive box_score_thresh)
+    # before assigning ids: otherwise they'd consume a global id and a recorded score
+    # while painting zero pixels into the volume, leaving mask{T}.scores.json with ids
+    # that never actually appear in mask{T}.tif.
+    for z in range(len(slices)):
+        masks = slices[z]
+        if masks.shape[0] == 0:
+            continue
+        nonempty = masks.reshape(masks.shape[0], -1).any(axis=1)
+        slices[z] = masks[nonempty]
+        if slice_scores[z] is not None:
+            slice_scores[z] = slice_scores[z][nonempty]
 
     Z = len(slices)
     H, W = slices[0].shape[1:]
@@ -121,6 +172,13 @@ def hungarian_matching_across(slice_paths, iou_threshold=0.5):
     volume = np.zeros((Z, H, W), dtype=np.int32)
 
     global_id = 1
+    id_to_scores = defaultdict(list)
+
+    def _record_scores(ids_for_slice, scores_for_slice):
+        if scores_for_slice is None:
+            return
+        for local_idx, gid in ids_for_slice.items():
+            id_to_scores[gid].append(float(scores_for_slice[local_idx]))
 
     # --- initialize first slice ---
     prev_masks = slices[0]
@@ -130,6 +188,7 @@ def hungarian_matching_across(slice_paths, iou_threshold=0.5):
         prev_ids[i] = global_id
         volume[0][m.astype(bool)] = global_id
         global_id += 1
+    _record_scores(prev_ids, slice_scores[0])
 
     # --- process remaining slices ---
     for z in range(1, Z):
@@ -142,6 +201,7 @@ def hungarian_matching_across(slice_paths, iou_threshold=0.5):
                 prev_ids[j] = global_id
                 volume[z][m.astype(bool)] = global_id
                 global_id += 1
+            _record_scores(prev_ids, slice_scores[z])
             prev_masks = curr_masks
             continue
 
@@ -169,20 +229,32 @@ def hungarian_matching_across(slice_paths, iou_threshold=0.5):
                 global_id += 1
 
         # --- write to volume ---
+        # Note: if two predicted instances overlap heavily within this slice, a
+        # later instance's pixels overwrite an earlier one's here (paint order =
+        # enumeration order) -- pre-existing behavior, not changed by score
+        # propagation. Rare in practice, but can leave a linked id in
+        # id_to_scores/linked_scores with zero painted pixels in this slice if it
+        # was fully overwritten and had no other slice to appear in.
         for j, m in enumerate(curr_masks):
             volume[z][m.astype(bool)] = curr_ids[j]
+        _record_scores(curr_ids, slice_scores[z])
 
         # update
         prev_masks = curr_masks
         prev_ids = curr_ids
 
-    return volume
+    agg_fn = np.mean if score_agg == "mean" else np.max
+    linked_scores = {gid: float(agg_fn(scores)) for gid, scores in id_to_scores.items()}
 
-def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir):
+    return volume, linked_scores
+
+def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir, score_agg="mean"):
     """
     Creates:
       exp_dir/01_GT/SEG/man_segT.tif
       exp_dir/01_RES/maskT.tif
+      exp_dir/01_RES/maskT.scores.json   ({linked_instance_id: aggregated_score}, if
+                                           the pred slices had sibling .scores.npy files)
     """
 
 
@@ -242,11 +314,16 @@ def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir):
     # Step 4: per-T processing
     # -------------------------
     for T in sorted(slices_by_T.keys()):
+        # CTC convention requires zero-padded frame numbers (man_seg0000.tif,
+        # mask0000.tif, ...); num_digits=4 here to match how SEGMeasure is invoked
+        # elsewhere (`./SEGMeasure <dir> 01 4`) -- the binary reports "No ground
+        # truth object found!" if this padding doesn't match its num_digits arg.
+        T_padded = f"{int(T):04d}"
 
         # hungarian matching
         all_slice_paths = sorted(slices_by_T[T])
         all_slice_paths = [i[1] for i in all_slice_paths]
-        inst_3d = hungarian_matching_across(all_slice_paths)
+        inst_3d, linked_scores = hungarian_matching_across(all_slice_paths, score_agg=score_agg)
         # ---- Predictions ----
         # binary_slices = []
         # for _, pred_path in sorted(slices_by_T[T]):
@@ -259,9 +336,13 @@ def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir):
         # inst_3d = label(binary_3d, connectivity=1)
 
         tifffile.imwrite(
-            os.path.join(res_out, f"mask{T}.tif"),
+            os.path.join(res_out, f"mask{T_padded}.tif"),
             inst_3d.astype(np.uint16)
         )
+
+        if linked_scores:
+            with open(os.path.join(res_out, f"mask{T_padded}.scores.json"), "w", encoding="utf-8") as f:
+                json.dump({str(gid): score for gid, score in linked_scores.items()}, f)
 
         # ---- GT (copy or reconstruct) ----
         # safest option: reuse original GT volumes if available
@@ -285,6 +366,6 @@ def make_files_for_SEG(exp_dir, target_masks_dir, pred_masks_dir):
         # gt_3d:torch.Tensor = resize(gt_3d)
         # gt_3d = gt_3d.detach().cpu().numpy()
         tifffile.imwrite(
-            os.path.join(gt_out, f"man_seg{T}.tif"),
+            os.path.join(gt_out, f"man_seg{T_padded}.tif"),
             gt_3d.astype(np.uint16)
         )

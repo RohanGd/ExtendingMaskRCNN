@@ -27,7 +27,7 @@ python run_train_test_pipeline.py config/<file>.ini
 
 Generate a 2D-slice dataset from raw 3D volumes (run once per dataset before training):
 ```
-python datasetGenerator.py --dataset {ATAS,C_elegans_nuclei,Mouse-Skull,Mouse-Organoid,Fluo-N3DH-SIM+,12spheroids} [--anisotropy High|Low] [--seed 42] [--split 0.75 0.15 0.10]
+python datasetGenerator.py --dataset {ATAS,C_elegans_nuclei,Mouse-Skull,Mouse-Organoid,Fluo-N3DH-SIM+,12spheroids} [--anisotropy High|Low] [--seed 42] [--split 0.8 0.2] [--val_from_test_fraction 0.2]
 ```
 Reads raw data from `DATA_PATH`, writes slices/masks/`metadata.json` to `DATASETS_PATH/<dataset_name>/{train,test,val}/`.
 
@@ -46,7 +46,8 @@ Environment: Python 3.11, PyTorch/torchvision with CUDA 12.6 wheels (`requiremen
 ## Architecture
 
 ### Data flow
-1. **`datasetGenerator.py`** — converts raw 3D volumes (TIFF/NRRD, one `DatasetSource` subclass per raw format) into a flat directory of 2D slices. Volumes are resized/padded to a square (`resize_with_padding`), split into train/test/val by **volume**, and every slice is saved as `imgs/<id>.npy` + `masks/<id>.npz` (boxes/labels/masks/area/iscrowd, produced by `get_target_from_mask`). A `metadata.json` maps volume index -> list of flat slice ids, because different datasets have inconsistent slice counts per volume — this replaced an older `volumeId_sliceId.tif` naming scheme that couldn't handle that (see `Docs/dataset_structure.md`). Train/test/val splitting (`train_test_val_split_on_paths`) puts the largest volumes in train (by file size) and shuffles the rest, reproducibly via `--seed`.
+1. **`datasetGenerator.py`** — converts raw 3D volumes (TIFF/NRRD, one `DatasetSource` subclass per raw format) into a flat directory of 2D slices. Volumes are resized/padded to a square (`resize_with_padding`), and every slice is saved as `imgs/<id>.npy` + `masks/<id>.npz` (boxes/labels/masks/area/iscrowd, produced by `get_target_from_mask`). A `metadata.json` maps volume index -> list of flat slice ids, because different datasets have inconsistent slice counts per volume — this replaced an older `volumeId_sliceId.tif` naming scheme that couldn't handle that (see `Docs/dataset_structure.md`).
+   Data is split by **volume** only two ways, train and test (`train_test_split_on_paths`), puts the largest volumes in train (by file size) and shuffles the rest, reproducibly via `--seed`; it guarantees at least 1 volume in each of train/test. There is no dedicated val split of whole volumes — `create_val_from_test_slices` instead populates `val/` by copying a random sample of already-generated **test slices** (`--val_from_test_fraction`, default 0.2), each written as its own singleton "volume" in `val/metadata.json` so `emrDataset` zero-pads their neighbor-slice context rather than pulling in an unrelated slice. This `val/` is only meant for `training_loop.py`'s per-epoch `validation()` (val_loss for early stopping, optionally a 2D metric) — it is not a substitute for evaluating on the held-out `test/` set, since its slices are drawn from the same volume(s) as test.
 2. **`emrDataset`** (`emrDataset.py`) — a `torch.utils.data.Dataset` over flat slice ids. For index `idx` it looks up the id's volume bounds in `metadata.json` (`__get_volume_bounds__`) and returns the `n` consecutive slices centered on `idx` (padding with a near-zero slice at volume edges) plus the target dict for the center slice only.
 3. **`DataloaderBuilder`** (`emrDataloader.py`) — builds `emrDataset` + `DataLoader` from an `emrConfigManager`, using `emrCollate_fn` to stack images into `[B, n, H, W]` and keep targets as a list of per-sample dicts.
 4. **`ExtendedMaskRCNN`** (`emrmodel/extended_mask_rcnn.py`) consumes `[B, n, H, W]` and predicts masks for the center slice only.

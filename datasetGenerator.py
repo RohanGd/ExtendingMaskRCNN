@@ -1,5 +1,6 @@
 import argparse
 import random
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -16,7 +17,7 @@ from emrConfigManager import DATA_PATH, DATASETS_PATH, REPO_ROOT
 
 DEFAULT_DATASET = "ATAS"
 SPLIT_SEED = 42
-SPLIT = (0.75, 0.15, 0.10)
+SPLIT = (0.8, 0.2)  # (train, test) -- volumes only ever split two ways, see train_test_split_on_paths
 BENCHMARK_ROOT = DATA_PATH / "Cell_Segmentation_Beyond_2D_Benchmark_Dataset"
 
 
@@ -164,24 +165,30 @@ def main():
     #     exit()
 
     pairs = source.get_pairs()
-    train_paths, test_paths, val_paths = train_test_val_split_on_paths(pairs, split=args.split, seed=args.seed)
+    train_paths, test_paths = train_test_split_on_paths(pairs, split=args.split, seed=args.seed)
     save_name_digits = 6
 
-    print("-" * 50, "\nCREATING VAL DATASET, number of volumes: ", len(val_paths))
-    create_dataset(val_paths, save_dir, source, type_="val", s=save_name_digits)
     print("-" * 50, "\nCREATING TEST DATASET, number of volumes: ", len(test_paths))
     create_dataset(test_paths, save_dir, source, type_="test", s=save_name_digits)
     print("-" * 50, "\nCREATING TRAIN DATASET, number of volumes: ", len(train_paths))
     create_dataset(train_paths, save_dir, source, type_="train", s=save_name_digits)
+
+    print("-" * 50, "\nCREATING VAL DATASET from a slice sample of test (no volumes are held out for val)")
+    create_val_from_test_slices(save_dir, s=save_name_digits, fraction=args.val_from_test_fraction, seed=args.seed)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate 2D Mask R-CNN slices from 3D cell segmentation datasets.")
     parser.add_argument("--dataset", choices=available_datasets(), default=DEFAULT_DATASET)
     parser.add_argument("--seed", type=int, default=SPLIT_SEED)
-    parser.add_argument("--split", nargs=3, type=float, default=SPLIT, metavar=("TRAIN", "TEST", "VAL"))
+    parser.add_argument("--split", nargs=2, type=float, default=SPLIT, metavar=("TRAIN", "TEST"))
     parser.add_argument("--anisotropy", choices=["High", "Low"], default="High")
     parser.add_argument("--output-root", type=Path, default=DATASETS_PATH)
+    parser.add_argument("--val_from_test_fraction", type=float, default=0.2,
+                         help="Fraction of test slices to sample into val/ for early-stopping's "
+                              "val_loss (and optionally a 2D metric) -- not a substitute for "
+                              "evaluating on the full held-out test set. No volumes are ever held "
+                              "back from train/test for val; data is only ever split train/test.")
     return parser.parse_args()
 
 
@@ -194,15 +201,27 @@ def create_new_dir_struct(dataset_name, output_root):
     return new_path
 
 
-def train_test_val_split_on_paths(pairs, split=SPLIT, seed=None):
-    """Put the largest volumes in train, then split the remainder reproducibly."""
+def train_test_split_on_paths(pairs, split=SPLIT, seed=None):
+    """Put the largest volumes in train, then split the remainder reproducibly.
+
+    Architecture decision: data is only ever split two ways, train and test, at the
+    volume level -- there is no dedicated val split of whole volumes. This guarantees
+    at least 1 volume in train and at least 1 in test (raises if there are fewer than
+    2 volumes total, since that leaves nothing to train or test on). val/ is instead
+    populated by create_val_from_test_slices() sampling individual slices out of the
+    generated test set, purely for a cheap early-stopping signal -- see its docstring.
+    """
     if not np.isclose(sum(split), 1.0):
         raise ValueError(f"split must sum to 1.0, got {split}")
 
     sorted_pairs = sorted(pairs, key=lambda x: x.image_path.stat().st_size, reverse=True)
     n = len(sorted_pairs)
+    if n < 2:
+        raise ValueError(f"Need at least 2 volumes (>=1 train, >=1 test), got {n}")
+
     train_end = int(n * split[0])
-    test_count = int(n * split[1])
+    # Guarantee >=1 train volume and leave room for >=1 test volume.
+    train_end = min(max(train_end, 1), n - 1)
 
     train_paths = sorted_pairs[:train_end]
     remaining_paths = sorted_pairs[train_end:]
@@ -210,10 +229,51 @@ def train_test_val_split_on_paths(pairs, split=SPLIT, seed=None):
     rng = random.Random(seed)
     rng.shuffle(remaining_paths)
 
-    test_paths = remaining_paths[:test_count]
-    val_paths = remaining_paths[test_count:]
+    return train_paths, remaining_paths
 
-    return train_paths, test_paths, val_paths
+
+def create_val_from_test_slices(save_dir, s, fraction=0.2, seed=None):
+    """
+    Populates val/ by copying a random subset of already-generated test slices --
+    since data is only ever split train/test at the volume level (no volume is ever
+    held back for a dedicated val split), this is the only source of val data.
+    training_loop.py's existing validation()/early-stopping machinery reads it the
+    same way it would read a real val split.
+
+    Each copied slice is written as its own singleton "volume" in val/metadata.json
+    (rather than preserving test's Z-ordering/grouping), since the slices sampled
+    here are not necessarily contiguous within their source volume -- treating them
+    as independent single-slice volumes means emrDataset correctly zero-pads their
+    neighbor-slice context instead of accidentally pulling in an unrelated slice.
+    This val subset is only a cheap early-stopping signal (val_loss, optionally a 2D
+    metric), not a substitute for evaluating on the full held-out test set.
+    """
+    test_imgs_dir = Path(save_dir) / "test" / "imgs"
+    test_masks_dir = Path(save_dir) / "test" / "masks"
+    val_imgs_dir = Path(save_dir) / "val" / "imgs"
+    val_masks_dir = Path(save_dir) / "val" / "masks"
+
+    test_ids = sorted(int(p.stem) for p in test_imgs_dir.glob("*.npy"))
+    if not test_ids:
+        print("No test slices found; leaving val/ empty.")
+        return
+
+    num_val = max(1, int(len(test_ids) * fraction))
+    rng = random.Random(seed)
+    sampled_ids = sorted(rng.sample(test_ids, min(num_val, len(test_ids))))
+
+    metadata = {}
+    for new_id, old_id in enumerate(sampled_ids):
+        old_name = str(old_id).zfill(s)
+        new_name = str(new_id).zfill(s)
+        shutil.copy(test_imgs_dir / f"{old_name}.npy", val_imgs_dir / f"{new_name}.npy")
+        shutil.copy(test_masks_dir / f"{old_name}.npz", val_masks_dir / f"{new_name}.npz")
+        metadata[new_id] = [new_id]
+
+    metadata_file_path = Path(save_dir) / "val" / "metadata.json"
+    json.dump(metadata, metadata_file_path.open("w", encoding="utf-8"))
+    print(f"Sampled {len(sampled_ids)} slices ({fraction:.0%} of test) from test/ into val/ for early stopping.")
+    print(metadata_file_path)
 
 
 def create_dataset(file_paths, save_dir, source, type_, s):

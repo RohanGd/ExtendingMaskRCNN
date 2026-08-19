@@ -65,6 +65,12 @@ class emrConfigManager:
             return self.config.getboolean(section, key)
         return fallback
 
+    def get_float_list(self, section, key, fallback=None):
+        if self.config.has_option(section, key):
+            raw = self.config.get(section, key)
+            return [float(v.strip()) for v in raw.split(",") if v.strip()]
+        return fallback
+
     # ----- Helpers for path creation -----
     def ensure_dir(self, section, key):
         path = self.get(section, key)
