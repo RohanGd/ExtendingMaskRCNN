@@ -43,6 +43,19 @@ There is no formal test suite / CI. `utils/unit_tests.py` is a set of ad-hoc man
 
 Environment: Python 3.11, PyTorch/torchvision with CUDA 12.6 wheels (`requirements.txt`, `Dockerfile`). On the DFKI Pegasus SLURM cluster, jobs run inside a container (`slurm/submit.sh`, `slurm/run`) — see Paths below for how storage differs there.
 
+`presentation/Tracking_experiments.xlsx` is the maintainer's manually-updated ledger of which checkpoint (path under `NETSCRATCH_PATH/Experiments/train/...`) corresponds to which dataset/experiment combination — check it before wiring a `ckpt_path`/`backbone_ckpt_path` into a config, since checkpoint directories are timestamped and not otherwise discoverable from the repo.
+
+### Procedure: wiring up testing after a training run finishes on the cluster
+
+The maintainer trains on the DFKI cluster, where Claude has no filesystem access, so checkpoint discovery is a manual handoff. After a batch of `slurm/{base,base_swin,channelFusion,earlyFusion,lateFusion}/*.sh` training jobs finishes:
+
+1. Run `bash slurm/list_fusion_checkpoints.sh [Experiments/train dir]` on the cluster (or an equivalent `find`/tree listing for `base`/`channelFusion` runs — see that script for the pattern) and paste the output back.
+2. Update `presentation/Tracking_experiments.xlsx`: for each dataset/experiment combination, use the **last-epoch checkpoint** (`epoch<N>.pt` where `N` is the highest epoch present in that run's directory), not `best_model_epoch<N>.pt` — this was an explicit maintainer preference. Preserve every existing cell exactly (read the sheet with explicit `ws.cell(row=r, column=c)` lookups, never positional tuples from `iter_rows()`, since row offsets shift whenever a new experiment-type row is inserted into a dataset block — a prior mistake here silently landed a value in the wrong dataset's row).
+3. Create/update a matching config under `config/test/<family>/` for each entry: copy the training config, and replace whatever loads a checkpoint with a single `ckpt_path` pointing at the chosen checkpoint —
+   - `base`/`base_swin`/`channelFusion` configs already use `ckpt_path` for training; just repoint it.
+   - `earlyFusion`/`lateFusion` configs use `backbone_ckpt_path` + `freeze_backbone = True` for training (warm-starting the per-slice backbone from a `base_n1` checkpoint, since `base_n1`'s single-channel backbone is architecturally identical to the per-slice backbone these fusion variants use); for testing, delete both of those lines and add `ckpt_path` pointing at the fully-trained fusion checkpoint instead — `ckpt_path` and `backbone_ckpt_path` are mutually exclusive in `emrModelBuilder.py`.
+4. Create matching `slurm/test/<family>/*.sh` sbatch jobs (mirror the existing training job template, job name prefixed `test_`, `--time=02:00:00` since testing has no backward pass) plus a `submit_all.sh`, and make sure `slurm/test/submit_all.sh` lists the new family.
+
 ## Architecture
 
 ### Data flow

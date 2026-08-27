@@ -67,6 +67,14 @@ class ModelBuilder:
         self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "")
         self.backbone_ckpt_path = self.cfg.get("LOOP", "backbone_ckpt_path", "")
         self.freeze_backbone = self.cfg.get_bool("LOOP", "freeze_backbone", False)
+        # When set, backbone_ckpt_path also warm-starts (and, if freeze_backbone is
+        # set, freezes) the RPN head and box head/predictor -- these operate on the
+        # center slice's features only (see generalized_rcnn.py/roi_heads.py), so
+        # they're architecturally identical to a single-slice (base_n1) checkpoint's
+        # RPN/box head and can be reused as-is. Only the mask head, mask predictor,
+        # and mask_features_fusion module (the parts that actually differ for a
+        # fusion model) are left randomly initialized and trainable.
+        self.warm_start_rpn_box = self.cfg.get_bool("LOOP", "warm_start_rpn_box", False)
 
         if self.ckpt_path and self.backbone_ckpt_path:
             raise ValueError(
@@ -84,9 +92,12 @@ class ModelBuilder:
         if self.backbone_ckpt_path:
             if os.path.exists(self.backbone_ckpt_path):
                 model_state_dict, _ = _model_state_dict(self.backbone_ckpt_path)
-                backbone_state_dict = {k: v for k, v in model_state_dict.items() if k.startswith("backbone.")}
-                model.load_state_dict(backbone_state_dict, strict=False)
-                self.logger.info(f"Loaded backbone weights from: {self.backbone_ckpt_path}")
+                warm_start_prefixes = ("backbone.",)
+                if self.warm_start_rpn_box:
+                    warm_start_prefixes += ("rpn.", "roi_heads.box_head.", "roi_heads.box_predictor.")
+                warm_start_state_dict = {k: v for k, v in model_state_dict.items() if k.startswith(warm_start_prefixes)}
+                model.load_state_dict(warm_start_state_dict, strict=False)
+                self.logger.info(f"Loaded weights ({warm_start_prefixes}) from: {self.backbone_ckpt_path}")
             else:
                 self.logger.warning(f"backbone_ckpt_path not found: {self.backbone_ckpt_path}")
         elif self.ckpt_path:
@@ -103,10 +114,13 @@ class ModelBuilder:
             self.logger.info(f"Created model with config: {self.cfg.path}")
 
         if self.freeze_backbone:
+            freeze_prefixes = ("backbone.",)
+            if self.warm_start_rpn_box:
+                freeze_prefixes += ("rpn.", "roi_heads.box_head.", "roi_heads.box_predictor.")
             for name, param in model.named_parameters():
-                if name.startswith("backbone."):
+                if name.startswith(freeze_prefixes):
                     param.requires_grad = False
-            self.logger.info("Backbone frozen.")
+            self.logger.info(f"Frozen: {freeze_prefixes}")
 
         self.logger.info(f"PRINTING MODEL ARCHITECTURE: {model}")
         return model
