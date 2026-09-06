@@ -1,7 +1,41 @@
 import os
 import warnings
 import torch
+from torchvision.models.detection.anchor_utils import AnchorGenerator
 from emrmodel.extended_mask_rcnn import ExtendedMaskRCNN
+
+
+def build_anchor_generator(sizes_str, ratios_str):
+    """Build an AnchorGenerator from the [MODEL] anchor_sizes / anchor_aspect_ratios keys.
+
+    anchor_sizes is one FPN level per "|", sizes within a level comma-separated, e.g.
+        anchor_sizes = 12,16,24 | 24,32,48 | 32,48,64 | 48,64,96 | 64,96,128
+    anchor_aspect_ratios is a single comma-separated list applied to every level.
+
+    Returns None when anchor_sizes is unset, so the model falls back to
+    _default_anchorgen() in emrmodel/faster_rcnn.py.
+
+    Each level must carry the SAME number of sizes: RPNHead emits one conv with a fixed
+    channel count for all levels, so a ragged config (e.g. 4 sizes on P2 but 3 on P4)
+    fails at box decode with "shape [N,-1] is invalid for input of size M".
+    """
+    if not sizes_str or not str(sizes_str).strip():
+        return None
+
+    sizes = tuple(
+        tuple(int(v) for v in level.split(",") if v.strip())
+        for level in str(sizes_str).split("|")
+    )
+    per_level = {len(level) for level in sizes}
+    if len(per_level) != 1:
+        raise ValueError(
+            f"anchor_sizes must have the same number of sizes on every FPN level, got "
+            f"{[len(level) for level in sizes]}. RPNHead cannot handle a ragged config."
+        )
+
+    ratios = tuple(float(v) for v in str(ratios_str).split(",") if v.strip()) \
+        if ratios_str and str(ratios_str).strip() else (0.75, 1.0, 1.5)
+    return AnchorGenerator(sizes, (ratios,) * len(sizes))
 
 class ModelBuilder:
     def __init__(self, cfg, logger):
@@ -24,6 +58,17 @@ class ModelBuilder:
         rpn_pre_nms_top_n_test = self.cfg.get_int("MODEL", "rpn_pre_nms_top_n_test", 1000)
         box_nms_thresh = self.cfg.get_float("MODEL", "box_nms_thresh", 0.5)
         box_detections_per_img = self.cfg.get_int("MODEL", "box_detections_per_img", 100)
+        rpn_post_nms_top_n_train = self.cfg.get_int("MODEL", "rpn_post_nms_top_n_train", 2000)
+        rpn_post_nms_top_n_test = self.cfg.get_int("MODEL", "rpn_post_nms_top_n_test", 1000)
+        # Sampling budgets. Both cap how many objects can contribute a gradient per image:
+        # rpn_batch_size_per_image * rpn_positive_fraction positive anchors, and
+        # box_batch_size_per_image * box_positive_fraction positive RoIs. On crowded
+        # datasets (ATAS runs 110-200 instances/slice) the torchvision defaults of
+        # 256*0.5 = 128 and 512*0.25 = 128 sit below the object count, so most cells are
+        # never sampled -- raise these alongside box_detections_per_img.
+        rpn_batch_size_per_image = self.cfg.get_int("MODEL", "rpn_batch_size_per_image", 256)
+        box_batch_size_per_image = self.cfg.get_int("MODEL", "box_batch_size_per_image", 512)
+        box_positive_fraction = self.cfg.get_float("MODEL", "box_positive_fraction", 0.25)
         rpn_fg_iou_thresh = self.cfg.get_float("MODEL", "rpn_fg_iou_thresh", 0.7)
         rpn_bg_iou_thresh = self.cfg.get_float("MODEL", "rpn_bg_iou_thresh", 0.3)
         box_fg_iou_thresh = self.cfg.get_float("MODEL", "box_fg_iou_thresh", 0.5)
@@ -33,6 +78,16 @@ class ModelBuilder:
         early_mlp_bias = self.cfg.get("MODEL", "early_mlp_bias", "None")
         roi_heads_fusion = self.cfg.get("MODEL", "roi_heads_fusion", "None")
         backbone = self.cfg.get("MODEL", "backbone", None) # None (default resnet50) or "Swin"
+        # Anchor sizes are bound to FPN levels, whose strides are fixed at 4/8/16/32/64, so
+        # what governs RPN recall is each anchor's size-to-stride ratio -- not its absolute
+        # size. Lowering the whole ladder pushes every size onto a relatively coarser level
+        # and makes matching worse; carrying several sizes per level is what helps. On ATAS
+        # (median cell 20px at 512) the 1-size-per-level default matches only 34% of GT
+        # boxes at >=0.7 IoU, versus 62% for 3 sizes per level.
+        anchor_generator = build_anchor_generator(
+            self.cfg.get("MODEL", "anchor_sizes", None),
+            self.cfg.get("MODEL", "anchor_aspect_ratios", None),
+        )
 
 
         model_params = {
@@ -48,6 +103,11 @@ class ModelBuilder:
             'rpn_pre_nms_top_n_test': rpn_pre_nms_top_n_test,
             'box_nms_thresh': box_nms_thresh,
             'box_detections_per_img': box_detections_per_img,
+            'rpn_post_nms_top_n_train': rpn_post_nms_top_n_train,
+            'rpn_post_nms_top_n_test': rpn_post_nms_top_n_test,
+            'rpn_batch_size_per_image': rpn_batch_size_per_image,
+            'box_batch_size_per_image': box_batch_size_per_image,
+            'box_positive_fraction': box_positive_fraction,
             'rpn_fg_iou_thresh': rpn_fg_iou_thresh,
             'rpn_bg_iou_thresh': rpn_bg_iou_thresh,
             'box_fg_iou_thresh': box_fg_iou_thresh,
@@ -57,7 +117,8 @@ class ModelBuilder:
             'early_mlp_reduction': early_mlp_reduction,
             'early_mlp_bias': early_mlp_bias,
             'roi_heads_fusion': roi_heads_fusion,
-            'backbone': backbone
+            'backbone': backbone,
+            'rpn_anchor_generator': anchor_generator,
         }
 
         self.logger.info(f"MODEL PARAMS: {model_params}")

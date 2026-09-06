@@ -39,20 +39,43 @@ class VolumePair:
 class DatasetSource:
     name = None
     output_name = None
+    # Which axis of the raw volume is the stack (Z) axis. Everything downstream --
+    # resize_with_padding, make(), emrDataset's neighbour windows -- assumes axis 0,
+    # so read_volume moves slice_axis there. Not every source stores volumes as (Z, Y, X):
+    # C_elegans_nuclei is (Y, X, Z), see SLICE_AXIS_BY_DATASET.
+    slice_axis = 0
 
     def get_pairs(self):
         raise NotImplementedError
 
+    def to_slice_first(self, volume):
+        """Move self.slice_axis to axis 0 so the volume is indexed as (slices, H, W)."""
+        if self.slice_axis == 0:
+            return volume
+        return np.ascontiguousarray(np.moveaxis(volume, self.slice_axis, 0))
+
     def read_volume(self, pair):
         image = tiff.imread(pair.image_path)
         mask = tiff.imread(pair.mask_path)
-        return ensure_3d(image), ensure_3d(mask)
+        return self.to_slice_first(ensure_3d(image)), self.to_slice_first(ensure_3d(mask))
+
+
+# Stack axis of the raw volume, for sources that do not store it as axis 0.
+# C_elegans_nuclei volumes are (140, 140, 1244): the L1 larva lies along axis 2, which is
+# the stack axis. Labels span 39..102 on axes 0/1 but the full 0..1243 on axis 2, and only
+# 64/140 axis-0 planes contain any label versus 1223/1244 axis-2 planes, so slicing on
+# axis 0 produced mostly-empty 140x1244 planes that resize_with_padding then squashed to
+# 58x512 (~89% padding), shrinking isotropic 13px nuclei to 5x4px boxes.
+SLICE_AXIS_BY_DATASET = {
+    "C_elegans_nuclei": 2,
+}
 
 
 class BenchmarkTiffSource(DatasetSource):
     def __init__(self, name, root=BENCHMARK_ROOT):
         self.name = name
         self.output_name = name
+        self.slice_axis = SLICE_AXIS_BY_DATASET.get(name, 0)
         self.root = resolve_path(root)
         self.images_dir = self.root / "images" / name
         self.masks_dir = self.root / "masks" / name
@@ -283,7 +306,7 @@ def create_dataset(file_paths, save_dir, source, type_, s):
 
         files_saved, next_file_id = make(path_pair, idx, next_file_id, save_dir, type_, source, s)
         metadata[idx] = files_saved
-    
+
     metadata_file_path = Path(save_dir) / type_ / "metadata.json"
     print(metadata_file_path)
     json.dump(metadata, metadata_file_path.open("w", encoding="utf-8") )
