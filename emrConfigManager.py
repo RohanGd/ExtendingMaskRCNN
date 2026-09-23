@@ -7,18 +7,23 @@ import pandas as pd
 from torch import Tensor
 from pathlib import Path
 
+# Per-user scratch root on the cluster. Was /netscratch/gadgil until /netscratch became
+# unreachable (Sep 2026); override with EMR_SCRATCH if storage moves again.
+# Hardcoded user rather than os.environ["USER"]: jobs on Pegasus run inside a SLURM/enroot
+# container as root, so $USER resolves to "root" rather than the submitting user, and
+# only this directory is bind-mounted (see slurm/submit.sh).
+CLUSTER_SCRATCH = Path(os.environ.get("EMR_SCRATCH", "/fscratch/gadgil"))
+
 # Detect the Pegasus cluster by its mounts rather than by hostname, so any
 # machine without these mounts (laptop, CI, ...) falls back to local paths.
-IS_CLUSTER = os.path.isdir("/netscratch") and os.path.isdir("/ds")
+IS_CLUSTER = CLUSTER_SCRATCH.is_dir() and os.path.isdir("/ds")
 
 REPO_ROOT = Path(__file__).resolve().parent
 
-# /netscratch/gadgil: scratch space for temp files, experiment results, checkpoints. No backup.
+# Scratch space for temp files, experiment results, checkpoints. No backup.
 # See https://pegasus.dfki.de/docs/guidelines/storage/
-# Hardcoded rather than os.environ["USER"]: jobs on Pegasus run inside a SLURM/enroot
-# container as root, so $USER resolves to "root" rather than the submitting user, and
-# only /netscratch/gadgil is bind-mounted (see slurm/submit.sh), not /netscratch/root.
-NETSCRATCH_PATH = Path("/netscratch/gadgil") if IS_CLUSTER else REPO_ROOT
+# (Name kept from the /netscratch days so existing imports keep working.)
+NETSCRATCH_PATH = CLUSTER_SCRATCH if IS_CLUSTER else REPO_ROOT
 
 # Raw downloaded/unzipped source data, staged before dataset generation.
 DATA_PATH = NETSCRATCH_PATH / "data" if IS_CLUSTER else REPO_ROOT / "data"
@@ -26,7 +31,7 @@ DATA_PATH = NETSCRATCH_PATH / "data" if IS_CLUSTER else REPO_ROOT / "data"
 # Generated 2D-slice datasets (output of datasetGenerator.py, input to emrDataset/emrDataloader).
 # /ds is a read-only dataset share on the cluster (see https://pegasus.dfki.de/docs/guidelines/storage/:
 # "dataset shares, read from here, don't write") -- jobs mount it :ro, so datasets we generate
-# ourselves live in netscratch instead, alongside other per-user experiment output.
+# ourselves live in the scratch root instead, alongside other per-user experiment output.
 DATASETS_PATH = NETSCRATCH_PATH / "datasets" if IS_CLUSTER else REPO_ROOT / "datasets"
 
 
