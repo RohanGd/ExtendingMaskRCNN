@@ -30,10 +30,13 @@ def train_emr(config_file):
     # set up model and optimizer
     model_init = ModelBuilder(cfg, logger)
     model = model_init.load_model(train_dataset.dataset_name)
-    optimizer = model_init.build_optimizer(model)
 
+    # Move the model BEFORE building the optimizer: when resuming from ckpt_path,
+    # optimizer.load_state_dict() puts the AdamW state on the params' current device,
+    # so building it on CPU leaves that state behind and step() fails on mixed devices.
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device=device)
+    optimizer = model_init.build_optimizer(model)
     model.train()
 
     # looping params
