@@ -74,10 +74,17 @@ Use `-o BatchMode=yes` so a missing key fails fast instead of hanging on a passw
 | what | where |
 |---|---|
 | cluster checkout | `/home/gadgil/ExtendingMaskRCNN` |
-| experiment outputs | `/netscratch/gadgil/Experiments/{train,test}/<dataset>/<run>/` |
-| job logs | `/netscratch/gadgil/runlogs/<jobname>_<jobid>.log` |
-| container image | `/netscratch/gadgil/extending_maskrcnn_v1.sqsh` |
-| datasets (read-only) | `/ds/3d/cellular` |
+| experiment outputs | `/fscratch/gadgil/Experiments/{train,test}/<dataset>/<run>/` |
+| job logs | `/fscratch/gadgil/runlogs/<jobname>_<jobid>.log` |
+| container image | `/fscratch/gadgil/extending_maskrcnn_v1.sqsh` |
+| generated datasets | `/fscratch/gadgil/datasets/<dataset>/{train,test,val}` (`DATASETS_PATH`) |
+| raw data | `/fscratch/gadgil/data` (`DATA_PATH`) |
+
+Verified 2026-10-14. The scratch root moved from `/netscratch/gadgil` to `/fscratch/gadgil` on 2026-09-23, when
+`/netscratch` went down (`EMR_SCRATCH` overrides it). `/netscratch` came back about 2026-09-29 and still holds the
+original datasets and the pre-move runs, so `/netscratch/...` paths in old configs or the workbook point there. The
+test splits in both places are identical (same `test/metadata.json` md5). `/ds/3d/cellular` is **not** used: it is
+an empty read-only share, which `DATASETS_PATH` stopped pointing at in July (commit bba254b).
 
 **The local checkout and the cluster checkout are separate, and git does not bridge them.**
 `.gitignore` excludes `/config`, `/slurm` and `/presentation`, i.e. every config, every sbatch
@@ -233,11 +240,36 @@ This is the crux of the "extending" in the project name — two independent plac
 ### Backbone choice
 Config key `backbone` in `[MODEL]` (default unset -> ResNet50-FPN). Setting `backbone = Swin` swaps in a Swin-T + FPN backbone (`emrmodel/swin_fpn_backbone.py`), used the same way ResNet50 is in both fusion regimes above: `SwinFPNBackbone` (channel-fusion path, `in_channels=num_slices_per_batch` on the patch-embed conv) or `Stacked_SwinFPN_Backbone` (per-slice single-channel Swin, shared weights, used when `early_mlp_fusion`/`roi_heads_fusion` is set — mirrors `Stacked_Resnet50FPN_Backbone`). Swin's `features` Sequential exposes per-stage outputs at indices `1,3,5,7` (channels `[96,192,384,768]`, strides `[4,8,16,32]`), which line up with ResNet50's `layer1..layer4` strides, so it drops into the same `FeaturePyramidNetwork` / `MultiScaleRoIAlign(featmap_names=["0","1","2","3"])` setup unmodified. Swin stage outputs are channel-last (`B,H,W,C`) internally and get permuted to `B,C,H,W` before the FPN. Unlike the ResNet path, the Swin backbone is not partially frozen via `trainable_backbone_layers` — it's always fully fine-tuned. See `config/swin_channelFusion.ini` for an example.
 
+### Architecture choice: Mask R-CNN or Mask2Former
+Config key `architecture` in `[MODEL]` (default `MaskRCNN`). `architecture = Mask2Former` builds `EMRMask2Former`
+(`emrmodel/mask2former/`). It is a fork of transformers 5.14.1's `modeling_mask2former.py`, split into
+`pixel_decoder.py` / `transformer_decoder.py` / `criterion.py`. It is kept as source rather than imported so the
+slice-fusion hooks can sit inside it. It keeps `ExtendedMaskRCNN`'s I/O contract (train: loss dict; eval: list of
+`{masks [N,1,H,W], scores, labels, boxes}`), so the loops, `save_preds` and the metrics are shared. HF module names are
+preserved: an HF checkpoint's heads load with only a prefix rewrite (`HF_PREFIX_MAP`, `m2f_head_init`). A fork-vs-HF
+check gave bit-identical logits and losses.
+
+The same fusion keys select the same three regimes:
+
+| mode | backbone | where the S slices become one |
+|---|---|---|
+| channel (`early_mlp_fusion`/`roi_heads_fusion` = None) | one, `in_channels=S` | input conv |
+| early (`early_mlp_fusion=Global\|GlobalPerFPN\|Pixel\|PixelPerFPN`) | 1-ch, shared, run on `B*S` | in the pixel decoder, after each level's 256-ch projection, using the `early_mlp_fusion.py` modules (4 levels `'0'..'3'`; the `*PerFPN` `'pool'` module goes unused) |
+| late (`roi_heads_fusion=mean\|only_center\|conv3d\|SE`) | 1-ch backbone **and** pixel decoder per slice | queries attend to the center slice's multi-scale features; the S per-slice `mask_features` are collapsed by `mask_features_fusion.py` before the mask einsum (per image, not per instance as in Mask R-CNN) |
+
+There are no anchors, RPN or NMS, so none of the `rpn_*`/`anchor_*`/`box_nms_*` keys apply. The crowding knob is
+**`num_queries`**: it caps detections per slice and must exceed the dataset's max instance count (ATAS reaches 432
+masks per slice, so 450). Other keys: `decoder_layers`, `class_weight`/`mask_weight`/`dice_weight`,
+`no_object_weight`, `train_num_points`, and `[LOOP] backbone_lr_mult` (the reference recipe uses 0.1; the default
+1.0 matches Mask R-CNN). `backbone_ckpt_path`/`freeze_backbone`/`warm_start_rpn_box` work as for Mask R-CNN, with
+per-architecture prefixes in `WARM_START_PREFIXES` (`emrModelBuilder.py`). Configs:
+`config/pipeline/mask2former/`, jobs: `slurm/pipeline/mask2former/`.
+
 ### Paths (`emrConfigManager.py`)
-Path constants switch automatically between a local checkout and the DFKI Pegasus cluster, detected via `IS_CLUSTER = /netscratch and /ds both exist`:
-- `NETSCRATCH_PATH` — scratch space for experiment outputs/checkpoints (`/netscratch/$USER` on cluster, else repo root).
-- `DS_PATH` / `DATASETS_PATH` — shared, already-generated train/test/val slice datasets (`/ds/3d/cellular` on cluster, else `./datasets`).
-- `DATA_PATH` — raw downloaded source volumes staged for `datasetGenerator.py` (`/netscratch/$USER/data` on cluster, else `./data`).
+Path constants switch automatically between a local checkout and the DFKI Pegasus cluster, detected via `IS_CLUSTER = CLUSTER_SCRATCH and /ds both exist`, where `CLUSTER_SCRATCH = $EMR_SCRATCH` (default `/fscratch/gadgil`):
+- `NETSCRATCH_PATH` — scratch root for experiment outputs/checkpoints (`CLUSTER_SCRATCH` on cluster, else repo root). The name dates from the `/netscratch` days.
+- `DATASETS_PATH` — generated train/test/val slice datasets (`CLUSTER_SCRATCH/datasets` on cluster, else `./datasets`).
+- `DATA_PATH` — raw downloaded source volumes staged for `datasetGenerator.py` (`CLUSTER_SCRATCH/data` on cluster, else `./data`).
 Don't hardcode `datasets/` or `data/` paths in new code — import these constants instead so the code keeps working both locally and on the cluster.
 
 ### Metrics

@@ -371,17 +371,26 @@ def get_target_from_mask(mask, image_id):
 
     masks = (mask[None, :, :] == obj_ids[:, None, None]).to(torch.uint8)
 
+    # masks, boxes and labels must stay index-aligned: Mask R-CNN pairs boxes[i] with masks[i]. Instances used
+    # to be dropped from boxes/labels but kept in masks when 1px thick, misaligning every later instance (77%
+    # of ATAS train slices). Such instances now keep their mask and get a box widened to 1px instead, since
+    # torchvision rejects zero-width boxes -- so masks (2D metric GT) and orignal_mask (volume GT) are unchanged.
     boxes = []
+    keep = []
     for single_mask in masks:
         pos = torch.where(single_mask)
-        if len(pos[0]) == 0:
+        keep.append(len(pos[0]) > 0)
+        if not keep[-1]:
             continue
         xmin, xmax = pos[1].min(), pos[1].max()
         ymin, ymax = pos[0].min(), pos[0].max()
 
-        if xmax <= xmin or ymax <= ymin:
-            continue
+        if xmax <= xmin:
+            xmax = xmin + 1
+        if ymax <= ymin:
+            ymax = ymin + 1
         boxes.append([xmin, ymin, xmax, ymax])
+    masks = masks[torch.as_tensor(keep, dtype=torch.bool)] if len(keep) else masks
 
     if len(boxes) == 0:
         boxes = torch.zeros((0, 4), dtype=torch.float32)

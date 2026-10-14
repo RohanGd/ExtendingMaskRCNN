@@ -3,6 +3,20 @@ import warnings
 import torch
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from emrmodel.extended_mask_rcnn import ExtendedMaskRCNN
+from emrmodel.mask2former import EMRMask2Former, load_hf_head_weights
+
+# Parameter-name prefixes that backbone_ckpt_path warm-starts (and freeze_backbone freezes), per architecture.
+# "extra" is added under warm_start_rpn_box: the parts that only ever see the center slice / a single slice and
+# so are architecturally identical between an n1 checkpoint and a fusion model.
+WARM_START_PREFIXES = {
+    "MaskRCNN": {"base": ("backbone.",),
+                 "extra": ("rpn.", "roi_heads.box_head.", "roi_heads.box_predictor.")},
+    # late fusion runs the n1 model's pixel decoder per slice and its transformer decoder on the center slice;
+    # only mask_features_fusion is new. (For early fusion the pixel decoder input changes, so warm-start the
+    # backbone only.)
+    "Mask2Former": {"base": ("backbone.",),
+                    "extra": ("pixel_decoder.", "transformer_module.", "class_predictor.")},
+}
 
 
 def build_anchor_generator(sizes_str, ratios_str):
@@ -121,9 +135,42 @@ class ModelBuilder:
             'rpn_anchor_generator': anchor_generator,
         }
 
-        self.logger.info(f"MODEL PARAMS: {model_params}")
-        
-        model = ExtendedMaskRCNN(**model_params)
+        self.architecture = self.cfg.get("MODEL", "architecture", "MaskRCNN")
+        if self.architecture not in WARM_START_PREFIXES:
+            raise ValueError(f"[MODEL] architecture must be one of {list(WARM_START_PREFIXES)}, got {self.architecture!r}")
+
+        if self.architecture == "Mask2Former":
+            # No anchors/RPN/NMS: the RPN, anchor and box-sampling keys above are ignored. num_queries is the
+            # crowding knob instead -- it caps detections per slice, so keep it above the dataset's max instance
+            # count (ATAS: 364). box_score_thresh / box_detections_per_img still filter the output.
+            model_params = {
+                'num_slices_per_batch': num_slices_per_batch,
+                'num_classes': num_classes,
+                'backbone': backbone,
+                'image_mean': self.cfg.get_float_list("MODEL", "image_mean", None),
+                'image_std': self.cfg.get_float_list("MODEL", "image_std", None),
+                'early_mlp_fusion': early_mlp_fusion,
+                'early_mlp_reduction': early_mlp_reduction,
+                'early_mlp_bias': early_mlp_bias,
+                'roi_heads_fusion': roi_heads_fusion,
+                'box_score_thresh': box_score_thresh,
+                'box_detections_per_img': box_detections_per_img,
+                'num_queries': self.cfg.get_int("MODEL", "num_queries", 100),
+                'decoder_layers': self.cfg.get_int("MODEL", "decoder_layers", 10),
+                'class_weight': self.cfg.get_float("MODEL", "class_weight", 2.0),
+                'mask_weight': self.cfg.get_float("MODEL", "mask_weight", 5.0),
+                'dice_weight': self.cfg.get_float("MODEL", "dice_weight", 5.0),
+                'no_object_weight': self.cfg.get_float("MODEL", "no_object_weight", 0.1),
+                'train_num_points': self.cfg.get_int("MODEL", "train_num_points", 12544),
+            }
+            self.logger.info(f"MODEL PARAMS: {model_params}")
+            model = EMRMask2Former(**model_params)
+            m2f_head_init = self.cfg.get("MODEL", "m2f_head_init", "")
+            if m2f_head_init:
+                load_hf_head_weights(model, m2f_head_init, self.logger)
+        else:
+            self.logger.info(f"MODEL PARAMS: {model_params}")
+            model = ExtendedMaskRCNN(**model_params)
 
         self.ckpt_path = self.cfg.get("LOOP", "ckpt_path", "")
         self.backbone_ckpt_path = self.cfg.get("LOOP", "backbone_ckpt_path", "")
@@ -153,9 +200,9 @@ class ModelBuilder:
         if self.backbone_ckpt_path:
             if os.path.exists(self.backbone_ckpt_path):
                 model_state_dict, _ = _model_state_dict(self.backbone_ckpt_path)
-                warm_start_prefixes = ("backbone.",)
+                warm_start_prefixes = WARM_START_PREFIXES[self.architecture]["base"]
                 if self.warm_start_rpn_box:
-                    warm_start_prefixes += ("rpn.", "roi_heads.box_head.", "roi_heads.box_predictor.")
+                    warm_start_prefixes += WARM_START_PREFIXES[self.architecture]["extra"]
                 warm_start_state_dict = {k: v for k, v in model_state_dict.items() if k.startswith(warm_start_prefixes)}
                 model.load_state_dict(warm_start_state_dict, strict=False)
                 self.logger.info(f"Loaded weights ({warm_start_prefixes}) from: {self.backbone_ckpt_path}")
@@ -175,9 +222,9 @@ class ModelBuilder:
             self.logger.info(f"Created model with config: {self.cfg.path}")
 
         if self.freeze_backbone:
-            freeze_prefixes = ("backbone.",)
+            freeze_prefixes = WARM_START_PREFIXES[self.architecture]["base"]
             if self.warm_start_rpn_box:
-                freeze_prefixes += ("rpn.", "roi_heads.box_head.", "roi_heads.box_predictor.")
+                freeze_prefixes += WARM_START_PREFIXES[self.architecture]["extra"]
             for name, param in model.named_parameters():
                 if name.startswith(freeze_prefixes):
                     param.requires_grad = False
@@ -189,6 +236,8 @@ class ModelBuilder:
     def build_optimizer(self, model):
         lr = self.cfg.get_float("LOOP", "learning_rate", 1e-4)
         wd = self.cfg.get_float("LOOP", "weight_decay", 1e-4)
+        # Mask2Former's reference recipe trains the backbone at 0.1x the head LR; 1.0 keeps the old behaviour
+        backbone_lr_mult = self.cfg.get_float("LOOP", "backbone_lr_mult", 1.0)
 
         backbone_params = []
         other_params = []
@@ -202,7 +251,7 @@ class ModelBuilder:
                 other_params.append(param)
 
         param_groups = [
-            {"params": backbone_params, "lr": lr * 1.0},
+            {"params": backbone_params, "lr": lr * backbone_lr_mult},
             {"params": other_params, "lr": lr},
         ]
 
