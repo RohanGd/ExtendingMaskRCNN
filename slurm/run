@@ -1,7 +1,7 @@
 srun \
   --container-image=/enroot/nvcr.io_nvidia_pytorch_23.12-py3.sqsh \
   --container-workdir="`pwd`" \
-  --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/$USER:/netscratch/$USER,/ds:/ds:ro \
+  --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/fscratch/$USER:/fscratch/$USER,/ds:/ds:ro \
   bash -c "pwd && ls -l && pip install imagecodecs && python datasetGenerator.py"
 
 
@@ -9,7 +9,7 @@ srun \
   --container-image=/enroot/kpatil_jagdale.sqsh \
   --gpus=1 \
   --container-workdir="/home/gadgil/ExtendingMaskRCNN" \
-  --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+  --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/fscratch/gadgil:/fscratch/gadgil,/ds:/ds:ro \
   bash -c "pwd && ls -l /home/gadgil/ExtendingMaskRCNN && pip install imagecodecs && python /home/gadgil/ExtendingMaskRCNN/training_loop.py /home/gadgil/ExtendingMaskRCNN/config/early_mlp_experiments/slicesemlp_gaussianbias.ini"
 
 
@@ -23,7 +23,7 @@ srun \
 --time=15:00:00 \
 --container-image=/enroot/kpatil_jagdale.sqsh \
 --container-workdir="/home/gadgil/ExtendingMaskRCNN" \
---container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+--container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/fscratch/gadgil:/fscratch/gadgil,/ds:/ds:ro \
 bash -c "pip install imagecodecs && python training_loop.py config/early_mlp_experiments/slicesemlp_gaussianbias.ini"
 
 
@@ -34,8 +34,8 @@ srun \
 --ntasks=1 \
 --cpus-per-gpu=4 \
 --time=15:00:00 \
---container-image=/netscratch/gadgil/extending_maskrcnn_v1.sqsh \
---container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+--container-image=/fscratch/gadgil/extending_maskrcnn_v1.sqsh \
+--container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/fscratch/gadgil:/fscratch/gadgil,/ds:/ds:ro \
 --container-workdir="/home/gadgil/ExtendingMaskRCNN" \
 python3 training_loop.py config/early_mlp_experiments/slicesemlp_gaussianbias.ini
 
@@ -47,9 +47,9 @@ srun \
 --mem=32G \
 --time=00:15:00 \
 --container-image=/enroot/ubuntu+20.04.sqsh \
---container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+--container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/fscratch/gadgil:/fscratch/gadgil,/ds:/ds:ro \
 --container-workdir="/home/gadgil/ExtendingMaskRCNN" \
-./SEGMeasure /netscratch/gadgil/Experiments/test/rpn_exps/roi_heads_fusion_loss_scaled_n7_20260309_195309 01 4
+./SEGMeasure /fscratch/gadgil/Experiments/test/rpn_exps/roi_heads_fusion_loss_scaled_n7_20260309_195309 01 4
 
 
 Global SliceSE Fusion:

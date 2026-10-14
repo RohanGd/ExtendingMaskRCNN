@@ -10,13 +10,13 @@
 #SBATCH --ntasks=1
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --output=/netscratch/gadgil/runlogs/%x_%j.log
+#SBATCH --output=/fscratch/gadgil/runlogs/%x_%j.log
 
 run() {
   if [ -n "$SLURM_JOB_ID" ]; then
     srun \
-      --container-image=/netscratch/gadgil/extending_maskrcnn_v1.sqsh \
-      --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/netscratch/gadgil:/netscratch/gadgil,/ds:/ds:ro \
+      --container-image=/fscratch/gadgil/extending_maskrcnn_v1.sqsh \
+      --container-mounts=/home/gadgil/ExtendingMaskRCNN:/home/gadgil/ExtendingMaskRCNN,/fscratch/gadgil:/fscratch/gadgil,/ds:/ds:ro \
       --container-workdir=/home/gadgil/ExtendingMaskRCNN \
       python3 datasetGenerator.py "$@"
   else

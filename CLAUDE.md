@@ -20,10 +20,25 @@ Test a model (reads `ckpt_path` from the config):
 python testing_loop.py config/<file>.ini
 ```
 
-Train then test in one go (writes the resulting checkpoint path back into the config file's `ckpt_path`, then runs testing):
+Train then test in one go (trains, then tests the checkpoint just produced):
 ```
 python run_train_test_pipeline.py config/<file>.ini
 ```
+It does **not** modify the config you pass in. It writes a resolved `test_config.ini` (with
+`ckpt_path` set to the new checkpoint and `backbone_ckpt_path` cleared) into the training run's
+own `Experiments/train/.../` folder and tests from that, so the original config stays reusable.
+Which checkpoint gets tested depends on `VALIDATION` (`training_loop.py:133-135`): with
+`VALIDATION = True` it returns `best_model_epoch<N>.pt`, otherwise the last epoch's
+`epoch<N>.pt`. Since the tracking sheet records last-epoch checkpoints, configs driven by the
+pipeline set `VALIDATION = False`.
+
+Batch train+test on the cluster (one job per config, ATAS + C_elegans_nuclei across
+`base`, `base_swin`, `channelFusion` n3/n5, `channelFusion_swin` n3/n5):
+```
+bash slurm/pipeline/submit_all.sh          # or one family: slurm/pipeline/<family>/submit_all.sh
+```
+These run `run_train_test_pipeline.py`, so unlike `slurm/test/*` they need no pre-wired
+`ckpt_path` — nothing to backfill from the cluster afterwards except the tracking sheet.
 
 Generate a 2D-slice dataset from raw 3D volumes (run once per dataset before training):
 ```
@@ -45,28 +60,166 @@ Environment: Python 3.11, PyTorch/torchvision with CUDA 12.6 wheels (`requiremen
 
 `presentation/Tracking_experiments.xlsx` is the maintainer's manually-updated ledger of which checkpoint (path under `NETSCRATCH_PATH/Experiments/train/...`) corresponds to which dataset/experiment combination — check it before wiring a `ckpt_path`/`backbone_ckpt_path` into a config, since checkpoint directories are timestamped and not otherwise discoverable from the repo.
 
-### Procedure: wiring up testing after a training run finishes on the cluster
+## Working with the DFKI Pegasus cluster
 
-The maintainer trains on the DFKI cluster, where Claude has no filesystem access, so checkpoint discovery is a manual handoff. After a batch of `slurm/{base,base_swin,channelFusion,earlyFusion,lateFusion}/*.sh` training jobs finishes:
+### Access
 
-1. Run `bash slurm/list_fusion_checkpoints.sh [Experiments/train dir]` on the cluster (or an equivalent `find`/tree listing for `base`/`channelFusion` runs — see that script for the pattern) and paste the output back.
-2. Update `presentation/Tracking_experiments.xlsx`: for each dataset/experiment combination, use the **last-epoch checkpoint** (`epoch<N>.pt` where `N` is the highest epoch present in that run's directory), not `best_model_epoch<N>.pt` — this was an explicit maintainer preference. Preserve every existing cell exactly (read the sheet with explicit `ws.cell(row=r, column=c)` lookups, never positional tuples from `iter_rows()`, since row offsets shift whenever a new experiment-type row is inserted into a dataset block — a prior mistake here silently landed a value in the wrong dataset's row).
-3. Create/update a matching config under `config/test/<family>/` for each entry: copy the training config, and replace whatever loads a checkpoint with a single `ckpt_path` pointing at the chosen checkpoint —
-   - `base`/`base_swin`/`channelFusion` configs already use `ckpt_path` for training; just repoint it.
-   - `earlyFusion`/`lateFusion` configs use `backbone_ckpt_path` + `freeze_backbone = True` for training (warm-starting the per-slice backbone from a `base_n1` checkpoint, since `base_n1`'s single-channel backbone is architecturally identical to the per-slice backbone these fusion variants use); for testing, delete both of those lines and add `ckpt_path` pointing at the fully-trained fusion checkpoint instead — `ckpt_path` and `backbone_ckpt_path` are mutually exclusive in `emrModelBuilder.py`.
-4. Create matching `slurm/test/<family>/*.sh` sbatch jobs (mirror the existing training job template, job name prefixed `test_`, `--time=02:00:00` since testing has no backward pass) plus a `submit_all.sh`, and make sure `slurm/test/submit_all.sh` lists the new family.
+`ssh pegasus1` (alias for `login1.pegasus.kl.dfki.de`) is key-based and works non-interactively, so
+Claude can drive the cluster directly:
+```
+ssh -o BatchMode=yes pegasus1 '<command>'
+```
+Use `-o BatchMode=yes` so a missing key fails fast instead of hanging on a password prompt.
+
+| what | where |
+|---|---|
+| cluster checkout | `/home/gadgil/ExtendingMaskRCNN` |
+| experiment outputs | `/netscratch/gadgil/Experiments/{train,test}/<dataset>/<run>/` |
+| job logs | `/netscratch/gadgil/runlogs/<jobname>_<jobid>.log` |
+| container image | `/netscratch/gadgil/extending_maskrcnn_v1.sqsh` |
+| datasets (read-only) | `/ds/3d/cellular` |
+
+**The local checkout and the cluster checkout are separate, and git does not bridge them.**
+`.gitignore` excludes `/config`, `/slurm` and `/presentation`, i.e. every config, every sbatch
+script and the tracking workbook. Only Python sources sync via git. To change a config or an
+sbatch script on the cluster, apply the *same targeted edit* over ssh (a `sed`/python line edit)
+rather than `scp`-ing whole files — the cluster copy may carry edits the local one doesn't, and
+copying would silently clobber them. Afterwards print the changed lines back and confirm both
+sides agree.
+
+### Submitting and monitoring
+
+```
+ssh pegasus1 'cd /home/gadgil/ExtendingMaskRCNN && bash slurm/pipeline/<family>/submit_all.sh'
+ssh pegasus1 'squeue -u $USER -o "%.10i %.36j %.9P %.8T %.10M %.12l %.24R"'
+ssh pegasus1 'sacct -j <id> --format=JobID,JobName%40,State,Elapsed,Timelimit,MaxRSS,ExitCode'
+ssh pegasus1 'tail -40 /netscratch/gadgil/runlogs/<jobname>_<jobid>.log'
+```
+
+- **Editing an sbatch script does not change a job already in the queue.** Queued jobs keep the
+  `--time`/`--partition` they were submitted with. To change them: `scancel` then resubmit (or
+  `scontrol update JobId=... TimeLimit=... Partition=...` for a pending job, which avoids losing
+  queue position but cannot change anything inside the script or config).
+- Before a bulk `scancel`, assert every target job is still `PENDING` — cancelling a running job
+  throws away hours of compute.
+- **Do not run the top-level `submit_all.sh` when part of the batch has already completed**; it
+  resubmits everything. Submit per-family instead.
+- Partitions (verified 2026-09-16 via `sinfo -o "%.14P %.12l %.20G %.6D"` and node `AvailableFeatures`):
+
+  | partition | max time | GPU | notes |
+  |---|---|---|---|
+  | `batch` (default) | 3 days | RTX6000, 24 GB, 10/node x 3 | same VRAM as RTX3090 |
+  | `RTX3090` | 3 days | 24 GB, 8/node x 3 | what everything used historically |
+  | `A100-40GB` / `A100-80GB` | 3 days | 40/80 GB | for anything that won't fit in 24 GB |
+  | `H100`, `H200`, `B200` | 1 day | large | short jobs only |
+
+- Sizing `--time`: measured on this repo, ATAS `base_n1` took **2.2 h** (17 epochs, 5971 slices)
+  and C_elegans `base_n1` **9.2 h** (35 epochs, 26202 slices); stacked-backbone fusion
+  (`earlyFusion`/`lateFusion`) costs roughly 2.5-3x per epoch over channel fusion, which runs the
+  backbone once. Derive a limit from the nearest measured run rather than copying an old value —
+  smaller requests get backfilled sooner, which is usually why jobs sit in `(Priority)`.
+
+### Procedure: wiring up a separate test run (training_loop.py, not the pipeline)
+
+`run_train_test_pipeline.py` tests its own checkpoint, so `slurm/pipeline/*` jobs need none of
+this. It is still required after a plain `slurm/{base,base_swin,channelFusion,channelFusion_swin,earlyFusion,lateFusion}/*.sh`
+training batch:
+
+1. List the finished checkpoints (`slurm/list_fusion_checkpoints.sh`) and pick the **last-epoch**
+   `epoch<N>.pt` per run.
+2. Record them in `Sheet1` of the workbook.
+3. Create/update `config/test/<family>/<run>.ini` — copy the training config and give it a single
+   `ckpt_path`:
+   - `base`/`base_swin`/`channelFusion`/`channelFusion_swin` already use `ckpt_path` for training;
+     just repoint it.
+   - `earlyFusion`/`lateFusion` train with `backbone_ckpt_path` + `freeze_backbone = True` (warm
+     starting the per-slice backbone from a `base_n1` checkpoint, whose single-channel backbone is
+     architecturally identical to the per-slice one). For testing, **delete both lines** and add
+     `ckpt_path` pointing at the fully-trained fusion checkpoint — `ckpt_path` and
+     `backbone_ckpt_path` are mutually exclusive in `emrModelBuilder.py`.
+4. Create matching `slurm/test/<family>/*.sh` jobs (training template, job name prefixed `test_`,
+   `--time=02:00:00` since testing has no backward pass) plus a `submit_all.sh`, and list the family
+   in `slurm/test/submit_all.sh`.
+
+Note that changing `anchor_sizes` changes the shape of `rpn.head.cls_logits`, so a test config must
+carry the *same* anchor settings as the run that produced its checkpoint, or `load_state_dict` fails.
+
+### Procedure: getting cluster results into `presentation/Tracking_experiments.xlsx`
+
+The workbook lives only on the local machine. Three sheets, three different jobs:
+
+| sheet | one row per | key | role |
+|---|---|---|---|
+| `Results` | (dataset, experiment) | cols A+B | the summary table, 17 columns |
+| `Results_raw` | run | (dataset, `run_dir`) | full 64-column dump; **keeps history** |
+| `Sheet1` | (dataset, experiment) | cols B+C | checkpoint ledger -> full path of the `.pt` |
+
+`Results` column map (verify it against an intact row before writing):
+`C` `2d.SEG_score` · `D` `2d.jaccard_index` · `E` `2d.dice_score` · `F` `2d.aji` · `G` `2d.ap@0_50`
+· `H` `2d.pq@0_50` · `I` `2d.mean_difference_in_count` · `J` `volume.volume_SEG_score` ·
+`K` `volume.volume_mean_semantic_3d_iou` · `L` `volume.volume_aji` · `M` `volume.volume_ap@0_50` ·
+`N` `volume.volume_pq@0_50` · `O` `volume.volume_acc@0_50` · `P` `volume.volume_acc@0_30` ·
+`Q` run directory. A run with no metrics yet is a *placeholder row*: the text
+`no test_metrics.json — test not run / failed` in `C`, `C:P` merged, run dir still in `Q`.
+
+1. **Collect metrics** — capture stdout over ssh, never from a terminal paste:
+   ```
+   ssh pegasus1 'cd /home/gadgil/ExtendingMaskRCNN && DATASETS="ATAS C_elegans_nuclei" bash slurm/collect_test_metrics.sh'
+   ```
+   Pasted terminal output *loses column boundaries*: runs of tabs collapse and adjacent values
+   merge (`0.004047550.918197`, `000` for three zero columns). If you are stuck with a paste,
+   split only tokens that are not a valid `f"{v:.6g}"`/int rendering, prefer the fewest pieces,
+   and validate each row with the redundancies the metrics carry: `2d.sq@T == 2d.mean_iou@T` and
+   `2d.rq@T == 2d.instance_f1@T` for every threshold, plus 61 metric values per row.
+2. **Collect checkpoints for `Sheet1`** — `collect_test_metrics.sh` reports *test* directories, not
+   training ones, so the ledger needs a separate listing:
+   ```
+   ssh pegasus1 'bash /home/gadgil/ExtendingMaskRCNN/slurm/list_fusion_checkpoints.sh'
+   ```
+   Record the **last-epoch** `epoch<N>.pt` (highest N), never `best_model_epoch<N>.pt` — an explicit
+   maintainer preference. Configs driven by `run_train_test_pipeline.py` set `VALIDATION = False`
+   precisely so the tested checkpoint is the last epoch.
+3. **Write the workbook** following the rules below, then report before/after for changed rows.
+
+### Editing the workbook with openpyxl — read this before touching it
+
+`presentation/` is gitignored, so **there is no git history to recover from**. Copy the file
+aside before editing.
+
+- **`insert_rows` does not move merged cell ranges.** They stay at their original row numbers while
+  the data shifts underneath them, so placeholder `C:P` merges end up sitting on metric rows. On
+  the *next load*, openpyxl blanks every cell of a merged range except the top-left — silently
+  destroying columns D..P of a real result row. This has already happened once and cost 10 rows.
+  Fix: unmerge every data-row merge first, do the inserts, then re-merge exactly the placeholder
+  rows at their final positions.
+- **Verify by saving to a temp file and reloading it from disk**, comparing against a snapshot
+  taken before the edit. An in-memory check after editing cannot see load-time blanking, and a
+  reload-then-compare that re-reads both sides passes vacuously. Only replace the real file once
+  the reloaded copy checks out.
+- **Key rows by (dataset, experiment), never by row index** — offsets shift whenever a row is
+  inserted into an earlier block.
+- `run_dir` alone is **not unique** across datasets (Fluo and Mouse-Skull both have a
+  `base_n1_20260823_145415`); match on (dataset, run_dir).
+- If `Results` is damaged, recover from `Results_raw` — it has no merged cells and so is never hit
+  by this failure.
+- Keep superseded runs in `Results_raw` when rerunning an experiment (append the new row next to
+  the old), so before/after comparisons survive; `Results` shows the current run only.
 
 ## Architecture
 
 ### Data flow
-1. **`datasetGenerator.py`** — converts raw 3D volumes (TIFF/NRRD, one `DatasetSource` subclass per raw format) into a flat directory of 2D slices. Volumes are resized/padded to a square (`resize_with_padding`), and every slice is saved as `imgs/<id>.npy` + `masks/<id>.npz` (boxes/labels/masks/area/iscrowd, produced by `get_target_from_mask`). A `metadata.json` maps volume index -> list of flat slice ids, because different datasets have inconsistent slice counts per volume — this replaced an older `volumeId_sliceId.tif` naming scheme that couldn't handle that (see `Docs/dataset_structure.md`).
+1. **`datasetGenerator.py`** — converts raw 3D volumes (TIFF/NRRD, one `DatasetSource` subclass per raw format) into a flat directory of 2D slices. Everything downstream assumes axis 0 is the stack axis, but not every source stores volumes that way: `DatasetSource.read_volume` moves `slice_axis` to axis 0, and `SLICE_AXIS_BY_DATASET` records the exceptions. **C_elegans_nuclei is `(Y, X, Z) = (140, 140, 1244)`** — the L1 larva lies along axis 2 — and slicing it on axis 0 (the original behaviour) produced mostly-empty 140x1244 planes that `resize_with_padding` squashed to 58x512, shrinking 13px nuclei to 5x4px boxes. If a new dataset scores near zero, check the slice axis first: labelled planes per axis is the diagnostic. Volumes are resized/padded to a square (`resize_with_padding`), and every slice is saved as `imgs/<id>.npy` + `masks/<id>.npz` (boxes/labels/masks/area/iscrowd, produced by `get_target_from_mask`). A `metadata.json` maps volume index -> list of flat slice ids, because different datasets have inconsistent slice counts per volume — this replaced an older `volumeId_sliceId.tif` naming scheme that couldn't handle that (see `Docs/dataset_structure.md`).
    Data is split by **volume** only two ways, train and test (`train_test_split_on_paths`), puts the largest volumes in train (by file size) and shuffles the rest, reproducibly via `--seed`; it guarantees at least 1 volume in each of train/test. There is no dedicated val split of whole volumes — `create_val_from_test_slices` instead populates `val/` by copying a random sample of already-generated **test slices** (`--val_from_test_fraction`, default 0.2), each written as its own singleton "volume" in `val/metadata.json` so `emrDataset` zero-pads their neighbor-slice context rather than pulling in an unrelated slice. This `val/` is only meant for `training_loop.py`'s per-epoch `validation()` (val_loss for early stopping, optionally a 2D metric) — it is not a substitute for evaluating on the held-out `test/` set, since its slices are drawn from the same volume(s) as test.
 2. **`emrDataset`** (`emrDataset.py`) — a `torch.utils.data.Dataset` over flat slice ids. For index `idx` it looks up the id's volume bounds in `metadata.json` (`__get_volume_bounds__`) and returns the `n` consecutive slices centered on `idx` (padding with a near-zero slice at volume edges) plus the target dict for the center slice only.
 3. **`DataloaderBuilder`** (`emrDataloader.py`) — builds `emrDataset` + `DataLoader` from an `emrConfigManager`, using `emrCollate_fn` to stack images into `[B, n, H, W]` and keep targets as a list of per-sample dicts.
 4. **`ExtendedMaskRCNN`** (`emrmodel/extended_mask_rcnn.py`) consumes `[B, n, H, W]` and predicts masks for the center slice only.
 
 ### Config-driven experiments
-Everything (dataset, model, fusion strategy, training hyperparameters) is driven by an `.ini` file (see `config/*.ini`), parsed by `emrConfigManager`. `emrModelBuilder.ModelBuilder` reads the `[MODEL]` section into `ExtendedMaskRCNN` kwargs and optionally loads a checkpoint from `[LOOP] ckpt_path`. `training_loop.py`/`testing_loop.py`/`run_train_test_pipeline.py` are the entry points; `emrConfigManager.create_experiment_folder` copies the config into a timestamped experiment dir under `Experiments/{train,test}/` for reproducibility, and `Fusion_Logger` (module-level singleton) records fusion-weight diagnostics there.
+Everything (dataset, model, fusion strategy, training hyperparameters) is driven by an `.ini` file (see `config/*.ini`), parsed by `emrConfigManager`. `emrModelBuilder.ModelBuilder` reads the `[MODEL]` section into `ExtendedMaskRCNN` kwargs and optionally loads a checkpoint from `[LOOP] ckpt_path`. Every key falls back to the torchvision default when absent, so adding one to a single dataset's config changes nothing elsewhere. Beyond the fusion knobs, the crowding/anchor keys matter on dense datasets:
+- `box_detections_per_img`, `rpn_batch_size_per_image`, `box_batch_size_per_image`, `box_positive_fraction`, `rpn_post_nms_top_n_{train,test}` — the defaults (100 detections; `256*0.5` and `512*0.25` = 128 positive samples) sit *below* the object count on ATAS (median 93 instances/slice, max 364), so most cells never contribute a gradient.
+- `anchor_sizes` / `anchor_aspect_ratios` — parsed by `build_anchor_generator`, one FPN level per `|`, sizes comma-separated within a level (`12,16,24 | 24,32,48 | ...`). Unset falls back to `_default_anchorgen()` in `emrmodel/faster_rcnn.py`. **Every level must carry the same number of sizes** — `RPNHead` uses one conv with a fixed channel count, and a ragged config fails at box decode. Note anchor sizes are bound to levels of fixed stride (4/8/16/32/64), so what governs RPN recall is the size-to-stride ratio, not absolute size: *lowering* the ladder makes matching worse (25.8% -> 7.5% of ATAS GT at >=0.7 IoU), while carrying 3 sizes per level raises it (34% -> 62% at 512px). Changing anchor counts changes `rpn.head.cls_logits` shape, so **old checkpoints will not load** into a config with new `anchor_sizes`.
+
+`training_loop.py`/`testing_loop.py`/`run_train_test_pipeline.py` are the entry points; `emrConfigManager.create_experiment_folder` copies the config into a timestamped experiment dir under `Experiments/{train,test}/` for reproducibility, and `Fusion_Logger` (module-level singleton) records fusion-weight diagnostics there.
 
 ### The two fusion points
 This is the crux of the "extending" in the project name — two independent places where the `n`-slice stack can be fused into one, controlled by separate config knobs:
