@@ -51,10 +51,15 @@ def train_emr(config_file):
     writer = SummaryWriter(log_dir=exp_dir)
     total_params = sum([p.numel() for p in model.parameters()])
     print(f"Total model params: {total_params}")
+    # Mask2Former's recipe clips the full-model grad norm (0.01); 0 = off, as before
+    grad_clip_norm = cfg.get_float("LOOP", "grad_clip_norm", 0.0)
+
     # training loop
-    global_iterations = 0
     start_epoch = model_init.start_epoch
     end_epoch = start_epoch + num_epochs
+    # counted from epoch 0, so a resumed run picks the LR schedule up where it left off
+    global_iterations = start_epoch * len(train_dataloader)
+    total_iterations = end_epoch * len(train_dataloader)
     logger.info(f"Training model on dataset: {train_dataset.dataset_name} for {num_epochs} epochs (epochs {start_epoch + 1} to {end_epoch}).")
     for epoch in range(start_epoch, end_epoch):
         # training
@@ -71,12 +76,15 @@ def train_emr(config_file):
 
             optimizer.zero_grad()
             loss.backward()
+            if grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+            lr_factor = model_init.set_lr(optimizer, global_iterations, total_iterations)
             optimizer.step()
 
             epoch_loss += loss.item()
             print_rate_loss += loss.item()
 
-            if global_iterations == 0:
+            if global_iterations == start_epoch * len(train_dataloader):
                 print(images.shape)
             global_iterations += 1
             iterations += 1
@@ -90,6 +98,7 @@ def train_emr(config_file):
             for loss_name, loss_value in loss_dict.items():
                 writer.add_scalar(f'Loss/{loss_name}', loss_value.item(), global_iterations)
             writer.add_scalar("Total Loss", loss, global_iterations)
+            writer.add_scalar("LR factor", lr_factor, global_iterations)
         
         writer.add_scalar("Epoch Loss", epoch_loss/len(train_dataloader), epoch)
         end_epoch_time = datetime.now()

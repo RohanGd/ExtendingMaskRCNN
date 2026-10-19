@@ -162,6 +162,8 @@ class ModelBuilder:
                 'dice_weight': self.cfg.get_float("MODEL", "dice_weight", 5.0),
                 'no_object_weight': self.cfg.get_float("MODEL", "no_object_weight", 0.1),
                 'train_num_points': self.cfg.get_int("MODEL", "train_num_points", 12544),
+                'overlap_thresh': self.cfg.get_float("MODEL", "overlap_thresh", 0.0),
+                'stem_init': self.cfg.get("MODEL", "stem_init", "random"),
             }
             self.logger.info(f"MODEL PARAMS: {model_params}")
             model = EMRMask2Former(**model_params)
@@ -260,6 +262,8 @@ class ModelBuilder:
         #         param_groups.append({"params": [param], "weight_decay": 0.0, "lr": lr})
 
 
+        for group in param_groups:
+            group["base_lr"] = group["lr"]  # set_lr scales from this, so the schedule survives a resume
         optimizer = torch.optim.AdamW(param_groups, lr=lr, weight_decay=wd)
 
         if self.optimizer_state_dict is not None:
@@ -267,3 +271,26 @@ class ModelBuilder:
             self.logger.info(f"Resumed optimizer state from: {self.ckpt_path}")
 
         return optimizer
+
+    def lr_factor(self, iteration, total_iters):
+        """
+        LR multiplier at a global iteration: linear warmup over [LOOP] warmup_iters, then [LOOP] lr_schedule --
+        `constant` (default) or `poly`, decaying to 0 at total_iters with power lr_poly_power (Mask2Former's
+        recipe). The defaults give 1.0 throughout, i.e. the old constant LR.
+        """
+        warmup_iters = self.cfg.get_int("LOOP", "warmup_iters", 0)
+        schedule = self.cfg.get("LOOP", "lr_schedule", "constant")
+        factor = min(1.0, (iteration + 1) / warmup_iters) if warmup_iters else 1.0
+        if schedule == "poly":
+            factor *= max(0.0, 1 - iteration / total_iters) ** self.cfg.get_float("LOOP", "lr_poly_power", 0.9)
+        elif schedule != "constant":
+            raise ValueError(f"[LOOP] lr_schedule must be constant or poly, got {schedule!r}")
+        return factor
+
+    def set_lr(self, optimizer, iteration, total_iters):
+        factor = self.lr_factor(iteration, total_iters)
+        for group in optimizer.param_groups:
+            # optimizer state resumed from a checkpoint older than base_lr replaces the groups wholesale
+            group.setdefault("base_lr", group["lr"])
+            group["lr"] = group["base_lr"] * factor
+        return factor

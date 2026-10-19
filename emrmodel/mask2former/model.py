@@ -53,15 +53,26 @@ class M2FBackbone(nn.Module):
     re-init of the stem) the Mask R-CNN backbones in this repo use, minus the FPN, which Mask2Former's pixel
     decoder replaces."""
 
-    def __init__(self, in_channels: int, kind: str = None):
+    def __init__(self, in_channels: int, kind: str = None, stem_init: str = "random"):
         super().__init__()
+        if stem_init not in ("random", "pretrained"):
+            raise ValueError(f"stem_init must be random or pretrained, got {stem_init!r}")
         if kind == "Swin":
+            if stem_init != "random":
+                raise ValueError("stem_init = pretrained is only implemented for the ResNet50 backbone")
             self.body = SwinStageExtractor(in_channels)
             self.channels = list(SWIN_T_STAGE_CHANNELS)
         elif kind is None or kind == "None":
             # same as ExtendedMaskRCNN's channel-fusion resnet: FrozenBatchNorm, all layers trainable
             net = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, progress=True, norm_layer=misc_nn_ops.FrozenBatchNorm2d)
+            rgb_weight = net.conv1.weight.detach()
             net.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            if stem_init == "pretrained":
+                # a grayscale slice fed as RGB hits the sum of the 3 colour filters; split that over the S input
+                # channels so S identical slices respond like one. Keeps the ImageNet stem (and the FrozenBN
+                # stats after it) meaningful, which matters at backbone_lr_mult 0.1 where a random stem barely trains
+                with torch.no_grad():
+                    net.conv1.weight.copy_(rgb_weight.sum(1, keepdim=True).repeat(1, in_channels, 1, 1) / in_channels)
             self.body = IntermediateLayerGetter(net, return_layers={"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"})
             self.channels = list(RESNET50_STAGE_CHANNELS)
         else:
@@ -76,7 +87,7 @@ class EMRMask2Former(nn.Module):
                  early_mlp_fusion="None", early_mlp_reduction=16, early_mlp_bias=None, roi_heads_fusion="None",
                  box_score_thresh=0.05, box_detections_per_img=100, num_queries=100, decoder_layers=10,
                  class_weight=2.0, mask_weight=5.0, dice_weight=5.0, no_object_weight=0.1, train_num_points=12544,
-                 **kwargs):
+                 overlap_thresh=0.0, stem_init="random", **kwargs):
         super().__init__()
         self.num_slices = num_slices_per_batch
         self.num_classes = num_classes
@@ -84,6 +95,7 @@ class EMRMask2Former(nn.Module):
         self.roi_heads_fusion = roi_heads_fusion
         self.score_thresh = box_score_thresh
         self.detections_per_img = box_detections_per_img
+        self.overlap_thresh = overlap_thresh  # 0 = off; Mask2Former's panoptic inference uses 0.8
 
         if early_mlp_fusion != "None" and roi_heads_fusion != "None":
             raise ValueError("Set only one of early_mlp_fusion / roi_heads_fusion.")
@@ -109,7 +121,7 @@ class EMRMask2Former(nn.Module):
         self.register_buffer("image_mean", torch.as_tensor(image_mean, dtype=torch.float32).view(1, -1, 1, 1), persistent=False)
         self.register_buffer("image_std", torch.as_tensor(image_std, dtype=torch.float32).view(1, -1, 1, 1), persistent=False)
 
-        self.backbone = M2FBackbone(in_channels, backbone)
+        self.backbone = M2FBackbone(in_channels, backbone, stem_init)
         self.pixel_decoder = Mask2FormerPixelDecoder(self.config, feature_channels=self.backbone.channels)
         self.transformer_module = Mask2FormerTransformerModule(in_features=self.config.feature_size, config=self.config)
         self.class_predictor = nn.Linear(self.config.hidden_dim, self.config.num_labels + 1)
@@ -260,6 +272,14 @@ class EMRMask2Former(nn.Module):
             # final score <= class prob, so anything under the threshold here can't survive -- skip its upsample
             keep = cls_scores > self.score_thresh
             cls_scores, query_idx, labels = cls_scores[keep], query_idx[keep], labels[keep]
+            if query_idx.numel() == 0:
+                # interpolate rejects a 0-channel input, and an empty slice is routine (volume edges)
+                results.append({
+                    "masks": mask_logits.new_zeros((0, 1, *image_size)),
+                    "scores": cls_scores, "labels": labels,
+                    "boxes": mask_logits.new_zeros((0, 4)),
+                })
+                continue
 
             mask_probs = nn.functional.interpolate(
                 mask_logits[query_idx][None], size=image_size, mode="bilinear", align_corners=False
@@ -272,6 +292,20 @@ class EMRMask2Former(nn.Module):
             mask_probs, binary, scores, labels = mask_probs[keep], binary[keep], scores[keep], labels[keep]
             order = scores.argsort(descending=True)
             mask_probs, binary, scores, labels = mask_probs[order], binary[order], scores[order], labels[order]
+
+            if self.overlap_thresh > 0 and binary.shape[0]:
+                # panoptic-style: each pixel goes to the highest-scoring mask claiming it; a mask left with under
+                # overlap_thresh of its own area was a duplicate of a better one and is dropped
+                claimed = torch.zeros_like(binary[0])
+                keep = torch.zeros(binary.shape[0], dtype=torch.bool, device=binary.device)
+                for i in range(binary.shape[0]):
+                    own = binary[i] & ~claimed
+                    if own.sum() >= self.overlap_thresh * binary[i].sum():
+                        keep[i] = True
+                        claimed |= own
+                        binary[i] = own
+                mask_probs = mask_probs * binary
+                mask_probs, binary, scores, labels = mask_probs[keep], binary[keep], scores[keep], labels[keep]
 
             boxes = masks_to_boxes(binary) if binary.shape[0] else torch.zeros((0, 4), device=mask_probs.device)
             results.append({"masks": mask_probs[:, None], "scores": scores, "labels": labels, "boxes": boxes})
